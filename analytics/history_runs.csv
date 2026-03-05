@@ -1,2 +1,3 @@
 ﻿history_updated_at_utc,run_id,run_datetime,report_file,total,ok,ok_parcial,nao_confirmado,erro,outros_status,falhas_criticas,success_rate,github_run_id,github_run_number,github_run_attempt,repository,ref_name,actor,event_name,run_url
 2026-03-05 19:00:03 UTC,20260305_130228,2026-03-05 13:02:28,relatorio_cadastro_20260305_130228.csv,5,5,0,0,0,0,0,100.0,local-demo-run,0,1,danyellambert/web-registration-automation,main,local,workflow_dispatch,https://example.com/runs/local-demo
+2026-03-05 19:11:06 UTC,20260305_191050,2026-03-05 19:10:50,relatorio_cadastro_20260305_191050.csv,2,2,0,0,0,0,0,100.0,22732423373,14,1,danyellambert/web-registration-automation,main,danyellambert,workflow_dispatch,https://github.com/danyellambert/web-registration-automation/actions/runs/22732423373
