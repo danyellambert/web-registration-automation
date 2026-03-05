@@ -217,6 +217,31 @@ def carregar_tabela(caminho_csv: Path, limite: int = 0) -> pd.DataFrame:
     return tabela
 
 
+def aguardar_frontend_tabela_pronto(driver: webdriver.Chrome, timeout: float = 20.0) -> None:
+    """
+    Aguarda o JS da página terminar de carregar e expor a função de cadastro.
+    Evita submeter antes dos listeners estarem ativos (comum em cloud/headless).
+    """
+
+    def pronto(d: webdriver.Chrome) -> bool:
+        try:
+            return bool(
+                d.execute_script(
+                    """
+                    return (
+                        document.readyState === 'complete' &&
+                        typeof cliqueiBotao === 'function' &&
+                        !!document.querySelector('#pgtpy-botao')
+                    );
+                    """
+                )
+            )
+        except Exception:
+            return False
+
+    WebDriverWait(driver, timeout).until(pronto)
+
+
 def fazer_login(driver: webdriver.Chrome, email: str, senha: str) -> None:
     driver.get(URL_LOGIN)
 
@@ -236,6 +261,9 @@ def fazer_login(driver: webdriver.Chrome, email: str, senha: str) -> None:
     # Confirma login aguardando campo do formulário de cadastro
     encontrar_elemento(driver, CAMPO_LOCATORS["codigo"], descricao="campo código")
 
+    # Garante que o JS da página de tabela está totalmente inicializado.
+    aguardar_frontend_tabela_pronto(driver)
+
 
 def enviar_formulario_cadastro(driver: webdriver.Chrome) -> None:
     """Envia o formulário de cadastro (botão ou Enter no último campo)."""
@@ -251,6 +279,34 @@ def enviar_formulario_cadastro(driver: webdriver.Chrome) -> None:
     except TimeoutException:
         campo_obs = encontrar_elemento(driver, CAMPO_LOCATORS["obs"], descricao="campo obs")
         campo_obs.send_keys(Keys.ENTER)
+
+
+def ler_lista_produtos_localstorage(driver: webdriver.Chrome) -> List[List[object]]:
+    """Lê `listaProdutos` do localStorage da página."""
+    try:
+        lista = driver.execute_script(
+            """
+            try {
+                const raw = window.localStorage.getItem('listaProdutos');
+                if (!raw) return [];
+                const parsed = JSON.parse(raw);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (e) {
+                return [];
+            }
+            """
+        )
+        return lista if isinstance(lista, list) else []
+    except Exception:
+        return []
+
+
+def codigo_presente_no_localstorage(lista_produtos: List[List[object]], codigo: str) -> bool:
+    for item in lista_produtos:
+        if isinstance(item, list) and item:
+            if str(item[0]).strip() == str(codigo).strip():
+                return True
+    return False
 
 
 def codigo_aparece_na_lista(driver: webdriver.Chrome, codigo: str, timeout: float = 5.0) -> bool:
@@ -278,17 +334,22 @@ def codigo_aparece_na_lista(driver: webdriver.Chrome, codigo: str, timeout: floa
 def confirmar_envio(
     driver: webdriver.Chrome,
     codigo_enviado: str,
+    qtd_localstorage_antes: int,
     timeout: float = TEMPO_CONFIRMACAO_ENVIO,
 ) -> Tuple[str, str]:
     """
-    Confirma envio com estratégia em 2 etapas:
-    1) campo 'codigo' voltou vazio (sinal de submit aceito)
-    2) tenta confirmar visualmente na lista de cadastrados
+    Confirma envio com múltiplas evidências:
+    1) campo 'codigo' voltou vazio (submit aceito)
+    2) localStorage incrementou (fonte da tabela)
+    3) código aparece no localStorage/lista visual quando possível
 
     Retorna status: ok | ok_parcial | nao_confirmado
     """
 
-    def campo_codigo_limpo(_: webdriver.Chrome) -> bool:
+    inicio = time.time()
+    campo_limpou = False
+
+    while (time.time() - inicio) < timeout:
         try:
             campo_codigo = encontrar_elemento(
                 driver,
@@ -296,23 +357,55 @@ def confirmar_envio(
                 descricao="campo código",
                 timeout_por_locator=0.6,
             )
-
-            return (campo_codigo.get_attribute("value") or "").strip() == ""
+            campo_limpou = (campo_codigo.get_attribute("value") or "").strip() == ""
         except TimeoutException:
-            return False
+            campo_limpou = False
 
-    try:
-        WebDriverWait(driver, timeout).until(campo_codigo_limpo)
+        lista_local = ler_lista_produtos_localstorage(driver)
+        qtd_local_atual = len(lista_local)
 
-        if codigo_aparece_na_lista(driver, codigo_enviado, timeout=5.0):
-            return "ok", "envio confirmado: código apareceu em Produtos Cadastrados"
+        if qtd_local_atual > qtd_localstorage_antes:
+            if codigo_presente_no_localstorage(lista_local, codigo_enviado):
+                return (
+                    "ok",
+                    (
+                        "envio confirmado em localStorage "
+                        f"(qtd {qtd_localstorage_antes} -> {qtd_local_atual})"
+                    ),
+                )
+            return (
+                "ok_parcial",
+                (
+                    "localStorage incrementou, mas código não foi encontrado "
+                    f"(qtd {qtd_localstorage_antes} -> {qtd_local_atual})"
+                ),
+            )
 
+        if campo_limpou:
+            # A UI aceitou o submit; aguarda mais um pouco o JS persistir no localStorage.
+            time.sleep(0.3)
+        else:
+            time.sleep(0.2)
+
+    lista_final = ler_lista_produtos_localstorage(driver)
+    qtd_local_final = len(lista_final)
+
+    if campo_limpou:
         return (
             "ok_parcial",
-            "formulário aceitou envio, mas código não foi confirmado visualmente na lista (headless/cloud)",
+            (
+                "campo limpou, mas localStorage não incrementou no tempo esperado "
+                f"(qtd {qtd_localstorage_antes} -> {qtd_local_final})"
+            ),
         )
-    except TimeoutException:
-        return "nao_confirmado", "campo código não limpou após envio (submit possivelmente não executado)"
+
+    return (
+        "nao_confirmado",
+        (
+            "campo código não limpou após envio "
+            f"(localStorage {qtd_localstorage_antes} -> {qtd_local_final})"
+        ),
+    )
 
 
 def cadastrar_produtos(driver: webdriver.Chrome, tabela: pd.DataFrame) -> List[Dict[str, str]]:
@@ -332,6 +425,8 @@ def cadastrar_produtos(driver: webdriver.Chrome, tabela: pd.DataFrame) -> List[D
         }
 
         try:
+            qtd_localstorage_antes = len(ler_lista_produtos_localstorage(driver))
+
             limpar_e_preencher(
                 encontrar_elemento(driver, CAMPO_LOCATORS["codigo"], descricao="campo código"),
                 registro["codigo"],
@@ -362,7 +457,11 @@ def cadastrar_produtos(driver: webdriver.Chrome, tabela: pd.DataFrame) -> List[D
             )
 
             enviar_formulario_cadastro(driver)
-            status, detalhe = confirmar_envio(driver, registro["codigo"])
+            status, detalhe = confirmar_envio(
+                driver,
+                registro["codigo"],
+                qtd_localstorage_antes=qtd_localstorage_antes,
+            )
         except Exception as erro:
             status = "erro"
             detalhe = str(erro)
@@ -442,6 +541,16 @@ def salvar_pdf_pagina_completa(driver: webdriver.Chrome) -> Path | None:
         return None
 
 
+def sincronizar_estado_visual_final(driver: webdriver.Chrome) -> None:
+    """Recarrega a página para forçar render da tabela a partir do localStorage."""
+    try:
+        driver.refresh()
+        WebDriverWait(driver, 8).until(lambda d: "Produtos Cadastrados" in d.page_source)
+        time.sleep(0.8)
+    except Exception:
+        pass
+
+
 def salvar_html_final(driver: webdriver.Chrome) -> Path | None:
     if not SALVAR_HTML_FINAL:
         return None
@@ -491,6 +600,8 @@ def main() -> None:
             caminho_relatorio = salvar_relatorio(resultados)
             if caminho_relatorio:
                 print(f"[WEB] Relatório salvo em: {caminho_relatorio}")
+
+        sincronizar_estado_visual_final(driver)
 
         caminho_pdf = salvar_pdf_pagina_completa(driver)
         if caminho_pdf:
