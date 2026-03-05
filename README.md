@@ -113,4 +113,30 @@ Ele registra aviso no summary e continua publicando artifacts.
 - artifacts com `logs/*.csv`, `logs/*.html`, `logs/*.pdf`
 - `logs/run_summary.json`
 - `logs/run_summary.md`
+- `analytics/history_runs.csv` (histórico consolidado de execuções)
 - resumo no `GITHUB_STEP_SUMMARY`
+
+## Histórico consolidado (Fase 3)
+
+Agora o workflow atualiza automaticamente `analytics/history_runs.csv` a cada execução,
+salvando métricas agregadas por run (total, ok, falhas, taxa de sucesso, run URL etc.).
+
+Esse arquivo é comitado automaticamente pelo GitHub Actions na branch atual.
+
+### Pré-requisito
+
+Em `Settings -> Actions -> General`, garanta permissão de escrita para o token:
+
+- **Workflow permissions: Read and write permissions**
+
+Sem isso, a automação principal roda, mas o push do histórico pode falhar.
+
+## Dashboard com histórico cloud (Fase 4)
+
+O `dashboard.py` agora lê duas fontes:
+
+1. `logs/relatorio_cadastro_*.csv` (detalhe local por registro)
+2. `analytics/history_runs.csv` (histórico consolidado por execução)
+
+Opcionalmente, você pode definir a variável de ambiente `HISTORY_REMOTE_URL`
+para carregar um CSV remoto de histórico quando não houver arquivo local.

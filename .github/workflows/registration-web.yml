@@ -39,7 +39,7 @@ on:
     - cron: "0 11 * * *"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   run-registration:
@@ -99,6 +99,83 @@ jobs:
         if: always()
         run: |
           cat logs/run_summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update run history (analytics/history_runs.csv)
+        if: always()
+        run: |
+          python scripts/update_history.py \
+            --summary-json logs/run_summary.json \
+            --history-csv analytics/history_runs.csv \
+            --github-run-id "${{ github.run_id }}" \
+            --github-run-number "${{ github.run_number }}" \
+            --github-run-attempt "${{ github.run_attempt }}" \
+            --repository "${{ github.repository }}" \
+            --ref-name "${{ github.ref_name }}" \
+            --actor "${{ github.actor }}" \
+            --event-name "${{ github.event_name }}" \
+            --run-url "$RUN_URL"
+
+      - name: Commit analytics history
+        if: always()
+        id: commit_history
+        continue-on-error: true
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add analytics/history_runs.csv
+
+          if git diff --staged --quiet; then
+            echo "No history changes to commit."
+            echo "commit_result=no_changes" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git commit -m "chore: update execution history (run ${{ github.run_id }})"
+
+          git pull --rebase origin "$BRANCH_NAME" || true
+
+          if git push origin "HEAD:$BRANCH_NAME"; then
+            echo "commit_result=committed" >> "$GITHUB_OUTPUT"
+          else
+            echo "commit_result=push_failed" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report history update status
+        if: always()
+        run: |
+          case "${{ steps.commit_history.outputs.commit_result }}" in
+            committed)
+              {
+                echo ""
+                echo "## 🗂️ Histórico consolidado"
+                echo "- ✅ Histórico atualizado e push realizado em \`analytics/history_runs.csv\`."
+              } >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            no_changes)
+              {
+                echo ""
+                echo "## 🗂️ Histórico consolidado"
+                echo "- ℹ️ Nenhuma mudança detectada no histórico para esta execução."
+              } >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            push_failed)
+              {
+                echo ""
+                echo "## 🗂️ Histórico consolidado"
+                echo "- ⚠️ Histórico gerado, mas push falhou (verifique permissões de Actions para escrever no repositório)."
+              } >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              {
+                echo ""
+                echo "## 🗂️ Histórico consolidado"
+                echo "- ⚠️ Status de atualização do histórico não identificado."
+              } >> "$GITHUB_STEP_SUMMARY"
+              ;;
+          esac
 
       - name: Check SMTP/email settings
         if: always()
@@ -194,5 +271,6 @@ jobs:
             logs/*.pdf
             logs/run_summary.json
             logs/run_summary.md
+            analytics/history_runs.csv
           if-no-files-found: warn
           retention-days: 14
