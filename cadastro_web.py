@@ -1,7 +1,9 @@
 """Automação de cadastro sem depender de coordenadas da tela.
 
-Usa Selenium para interagir por seletores (id/name/css/xpath),
-evitando click(x, y) e tornando o script mais estável.
+Foco em estabilidade para execução local e no GitHub Actions.
+- Interação por seletores (Selenium)
+- Fallback JS para ambiente cloud instável
+- Persistência incremental de CSV + HTML (para não perder evidências em timeout)
 """
 
 from __future__ import annotations
@@ -24,41 +26,49 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 # =========================
-# Configurações principais
+# Configurações
 # =========================
 
 URL_LOGIN = "https://dlp.hashtagtreinamentos.com/python/intensivao/login"
 CSV_PATH = Path(__file__).resolve().parent / "aula" / "produtos.csv"
+LOG_DIR = Path(__file__).resolve().parent / "logs"
 
 LOGIN_EMAIL = os.getenv("LOGIN_EMAIL", "meuemail@gmail.com")
 LOGIN_SENHA = os.getenv("LOGIN_SENHA", "senhanormal")
 
-# Opcional: HEADLESS=1 para rodar sem abrir janela do navegador
 HEADLESS = os.getenv("HEADLESS", "0") == "1"
-
-# Opcional: LIMITE_REGISTROS=10 para testar só parte do CSV
-LIMITE_REGISTROS = int(os.getenv("LIMITE_REGISTROS", "0"))
-
-# Opcional: KEEP_OPEN=0 para fechar o navegador ao final.
-# Padrão agora é manter aberto para você conferir o resultado.
 KEEP_OPEN = os.getenv("KEEP_OPEN", "1") == "1"
 
-# Gera relatório local com status de cada linha enviada.
+LIMITE_REGISTROS = int(os.getenv("LIMITE_REGISTROS", "0"))
+OFFSET_REGISTROS = int(os.getenv("OFFSET_REGISTROS", "0"))
+
 GERAR_RELATORIO = os.getenv("GERAR_RELATORIO", "1") == "1"
-
-# Gera PDF da página completa para auditoria.
-SALVAR_PDF_FINAL = os.getenv("SALVAR_PDF_FINAL", "1") == "1"
-
-# Salva também HTML final para depuração (útil quando PDF não mostra tudo).
 SALVAR_HTML_FINAL = os.getenv("SALVAR_HTML_FINAL", "1") == "1"
+SALVAR_PDF_FINAL = os.getenv("SALVAR_PDF_FINAL", "0") == "1"
 
-# Timeout base para confirmação de envio.
-TEMPO_CONFIRMACAO_ENVIO = float(os.getenv("TEMPO_CONFIRMACAO_ENVIO", "10"))
+TEMPO_CONFIRMACAO_ENVIO = float(os.getenv("TEMPO_CONFIRMACAO_ENVIO", "6"))
+TEMPO_MAX_ESPERA_SEM_EVIDENCIA = float(
+    os.getenv("TEMPO_MAX_ESPERA_SEM_EVIDENCIA", "2.5")
+)
 
-LOG_DIR = Path(__file__).resolve().parent / "logs"
+RELATORIO_PARCIAL_CADA = max(1, int(os.getenv("RELATORIO_PARCIAL_CADA", "10")))
+HTML_PARCIAL_CADA = int(os.getenv("HTML_PARCIAL_CADA", "25"))
+
+RELATORIO_COLUNAS = [
+    "indice_csv",
+    "codigo",
+    "marca",
+    "tipo",
+    "categoria",
+    "preco_unitario",
+    "custo",
+    "obs",
+    "status_execucao",
+    "detalhe",
+]
 
 # =========================
-# Seletores com fallback
+# Seletores
 # =========================
 
 Locator = Tuple[str, str]
@@ -107,7 +117,6 @@ CAMPO_LOCATORS: Dict[str, List[Locator]] = {
         (By.ID, "preco_unitario"),
         (By.NAME, "preco"),
         (By.ID, "preco"),
-        (By.CSS_SELECTOR, "input[placeholder*='pre']"),
     ],
     "custo": [
         (By.NAME, "custo"),
@@ -119,16 +128,13 @@ CAMPO_LOCATORS: Dict[str, List[Locator]] = {
         (By.ID, "obs"),
         (By.CSS_SELECTOR, "textarea[name='obs']"),
         (By.CSS_SELECTOR, "input[name='obs']"),
-        (By.CSS_SELECTOR, "textarea[placeholder*='Obs']"),
     ],
 }
 
 BOTAO_CADASTRO_LOCATORS: List[Locator] = [
-    # Seletor específico do botão Enviar (evita confusão com Limpar)
     (By.ID, "pgtpy-botao"),
     (By.CSS_SELECTOR, "button#pgtpy-botao"),
     (By.XPATH, "//button[@id='pgtpy-botao' and contains(normalize-space(), 'Enviar')]"),
-    # Fallbacks
     (By.XPATH, "//button[contains(., 'Cadastrar') or contains(., 'Enviar')]"),
     (By.CSS_SELECTOR, "button[type='submit']"),
 ]
@@ -138,11 +144,8 @@ def iniciar_driver(headless: bool, keep_open: bool) -> webdriver.Chrome:
     options = Options()
     if headless:
         options.add_argument("--headless=new")
-
-    # Deixa a janela aberta após o fim do script (modo visual).
     if keep_open and not headless:
         options.add_experimental_option("detach", True)
-
     options.add_argument("--start-maximized")
     options.add_argument("--disable-notifications")
     return webdriver.Chrome(options=options)
@@ -156,9 +159,7 @@ def encontrar_elemento(
     clickable: bool = False,
     timeout_por_locator: float = 2.5,
 ) -> WebElement:
-    """Tenta vários seletores até encontrar o elemento."""
     ultima_excecao: Exception | None = None
-
     for by, seletor in locators:
         try:
             wait = WebDriverWait(driver, timeout_por_locator)
@@ -191,12 +192,11 @@ def formatar_valor(valor: object) -> str:
     return str(valor)
 
 
-def carregar_tabela(caminho_csv: Path, limite: int = 0) -> pd.DataFrame:
+def carregar_tabela(caminho_csv: Path, limite: int = 0, offset: int = 0) -> pd.DataFrame:
     if not caminho_csv.exists():
         raise FileNotFoundError(f"CSV não encontrado: {caminho_csv}")
 
     tabela = pd.read_csv(caminho_csv)
-
     colunas_necessarias = [
         "codigo",
         "marca",
@@ -211,18 +211,14 @@ def carregar_tabela(caminho_csv: Path, limite: int = 0) -> pd.DataFrame:
     if faltando:
         raise ValueError(f"Colunas faltando no CSV: {', '.join(faltando)}")
 
+    if offset > 0:
+        tabela = tabela.iloc[offset:]
     if limite > 0:
         tabela = tabela.head(limite)
-
     return tabela
 
 
 def aguardar_frontend_tabela_pronto(driver: webdriver.Chrome, timeout: float = 20.0) -> None:
-    """
-    Aguarda o JS da página terminar de carregar e expor a função de cadastro.
-    Evita submeter antes dos listeners estarem ativos (comum em cloud/headless).
-    """
-
     def pronto(d: webdriver.Chrome) -> bool:
         try:
             return bool(
@@ -243,38 +239,85 @@ def aguardar_frontend_tabela_pronto(driver: webdriver.Chrome, timeout: float = 2
 
 
 def aplicar_patch_frontend_resiliencia(driver: webdriver.Chrome) -> None:
-    """
-    Em alguns runners cloud, localStorage pode falhar (SecurityError/Quota),
-    quebrando o fluxo dentro de `cliqueiBotao` antes do `updateUI`.
-    Este patch garante que falha de persistência não interrompa o cadastro.
-    """
     try:
         driver.execute_script(
             """
             try {
-                if (window.__automationPatchApplied) {
-                    return;
-                }
+                if (window.__automationPatchApplied) return;
                 window.__automationPatchApplied = true;
-
                 if (typeof window.updateLocalStorage === 'function') {
                     const originalUpdate = window.updateLocalStorage;
                     window.updateLocalStorage = function() {
-                        try {
-                            return originalUpdate.apply(this, arguments);
-                        } catch (e) {
-                            console.warn('[AUTOMATION] updateLocalStorage falhou, seguindo sem persistência.', e);
-                            return null;
-                        }
+                        try { return originalUpdate.apply(this, arguments); }
+                        catch (e) { return null; }
                     };
                 }
-            } catch (e) {
-                // Mantemos silencioso para não quebrar execução.
-            }
+            } catch (e) {}
             """
         )
     except Exception:
         pass
+
+
+def fazer_login(driver: webdriver.Chrome, email: str, senha: str) -> None:
+    driver.get(URL_LOGIN)
+    campo_email = encontrar_elemento(driver, LOGIN_EMAIL_LOCATORS, descricao="campo e-mail")
+    campo_senha = encontrar_elemento(driver, LOGIN_SENHA_LOCATORS, descricao="campo senha")
+    botao_login = encontrar_elemento(
+        driver,
+        BOTAO_LOGIN_LOCATORS,
+        descricao="botão de login",
+        clickable=True,
+    )
+
+    limpar_e_preencher(campo_email, email)
+    limpar_e_preencher(campo_senha, senha)
+    botao_login.click()
+
+    encontrar_elemento(driver, CAMPO_LOCATORS["codigo"], descricao="campo código")
+    aguardar_frontend_tabela_pronto(driver)
+    aplicar_patch_frontend_resiliencia(driver)
+
+
+def enviar_formulario_cadastro(driver: webdriver.Chrome) -> None:
+    try:
+        botao = encontrar_elemento(
+            driver,
+            BOTAO_CADASTRO_LOCATORS,
+            descricao="botão de cadastrar",
+            clickable=True,
+            timeout_por_locator=1.5,
+        )
+        botao.click()
+    except TimeoutException:
+        campo_obs = encontrar_elemento(driver, CAMPO_LOCATORS["obs"], descricao="campo obs")
+        campo_obs.send_keys(Keys.ENTER)
+
+
+def ler_lista_produtos_localstorage(driver: webdriver.Chrome) -> List[List[object]]:
+    try:
+        lista = driver.execute_script(
+            """
+            try {
+                const raw = window.localStorage.getItem('listaProdutos');
+                if (!raw) return [];
+                const parsed = JSON.parse(raw);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (e) {
+                return [];
+            }
+            """
+        )
+        return lista if isinstance(lista, list) else []
+    except Exception:
+        return []
+
+
+def codigo_presente_no_localstorage(lista_produtos: List[List[object]], codigo: str) -> bool:
+    for item in lista_produtos:
+        if isinstance(item, list) and item and str(item[0]).strip() == str(codigo).strip():
+            return True
+    return False
 
 
 def obter_qtd_linhas_tabela(driver: webdriver.Chrome) -> int:
@@ -293,7 +336,6 @@ def obter_qtd_linhas_tabela(driver: webdriver.Chrome) -> int:
 def codigo_presente_na_tabela_dom(driver: webdriver.Chrome, codigo: str) -> bool:
     if not codigo:
         return False
-
     try:
         return bool(
             driver.execute_script(
@@ -316,65 +358,44 @@ def codigo_presente_na_tabela_dom(driver: webdriver.Chrome, codigo: str) -> bool
 
 
 def inserir_produto_via_fallback_js(driver: webdriver.Chrome, registro: Dict[str, str]) -> bool:
-    """
-    Fallback final para ambientes cloud onde o JS original não persiste/renderiza.
-    Insere a linha diretamente no DOM e tenta atualizar localStorage.
-    """
     try:
         return bool(
             driver.execute_script(
                 """
-                const codigo = arguments[0];
-                const marca = arguments[1];
-                const tipo = arguments[2];
-                const categoria = arguments[3];
-                const preco = arguments[4];
-                const custo = arguments[5];
-                const obs = arguments[6];
+                const valores = [
+                    arguments[0], arguments[1], arguments[2], arguments[3],
+                    arguments[4], arguments[5], arguments[6]
+                ].map(v => (v == null ? '' : String(v)));
+
+                const tbody = document.querySelector('.pgtpy-container-tabela tbody');
+                if (!tbody) return false;
+
+                const row = document.createElement('tr');
+                for (const valor of valores) {
+                    const td = document.createElement('td');
+                    td.textContent = valor;
+                    row.appendChild(td);
+                }
+                tbody.appendChild(row);
+
+                const tabelaEl = document.querySelector('.pgtpy-div-tabela');
+                if (tabelaEl) tabelaEl.classList.add('visivel');
 
                 try {
-                    const tbody = document.querySelector('.pgtpy-container-tabela tbody');
-                    if (!tbody) return false;
-
-                    const tabelaEl = document.querySelector('.pgtpy-div-tabela');
-                    const row = document.createElement('tr');
-                    const valores = [codigo, marca, tipo, categoria, preco, custo, obs];
-
-                    for (const valor of valores) {
-                        const td = document.createElement('td');
-                        td.textContent = valor == null ? '' : String(valor);
-                        row.appendChild(td);
+                    const raw = localStorage.getItem('listaProdutos');
+                    const lista = raw ? JSON.parse(raw) : [];
+                    if (Array.isArray(lista)) {
+                        lista.push(valores);
+                        localStorage.setItem('listaProdutos', JSON.stringify(lista));
                     }
+                } catch (e) {}
 
-                    tbody.appendChild(row);
-                    if (tabelaEl) tabelaEl.classList.add('visivel');
-
-                    // Tenta manter coerência com o comportamento original (persistência local).
-                    try {
-                        let lista = [];
-                        try {
-                            const raw = localStorage.getItem('listaProdutos');
-                            const parsed = raw ? JSON.parse(raw) : [];
-                            if (Array.isArray(parsed)) {
-                                lista = parsed;
-                            }
-                        } catch (e) {}
-
-                        lista.push(valores.map(v => (v == null ? '' : String(v))));
-                        try {
-                            localStorage.setItem('listaProdutos', JSON.stringify(lista));
-                        } catch (e) {}
-                    } catch (e) {}
-
-                    const form = document.querySelector('form');
-                    if (form) {
-                        try { form.reset(); } catch (e) {}
-                    }
-
-                    return true;
-                } catch (e) {
-                    return false;
+                const form = document.querySelector('form');
+                if (form) {
+                    try { form.reset(); } catch (e) {}
                 }
+
+                return true;
                 """,
                 registro["codigo"],
                 registro["marca"],
@@ -389,96 +410,6 @@ def inserir_produto_via_fallback_js(driver: webdriver.Chrome, registro: Dict[str
         return False
 
 
-def fazer_login(driver: webdriver.Chrome, email: str, senha: str) -> None:
-    driver.get(URL_LOGIN)
-
-    campo_email = encontrar_elemento(driver, LOGIN_EMAIL_LOCATORS, descricao="campo e-mail")
-    campo_senha = encontrar_elemento(driver, LOGIN_SENHA_LOCATORS, descricao="campo senha")
-    botao_login = encontrar_elemento(
-        driver,
-        BOTAO_LOGIN_LOCATORS,
-        descricao="botão de login",
-        clickable=True,
-    )
-
-    limpar_e_preencher(campo_email, email)
-    limpar_e_preencher(campo_senha, senha)
-    botao_login.click()
-
-    # Confirma login aguardando campo do formulário de cadastro
-    encontrar_elemento(driver, CAMPO_LOCATORS["codigo"], descricao="campo código")
-
-    # Garante que o JS da página de tabela está totalmente inicializado.
-    aguardar_frontend_tabela_pronto(driver)
-    aplicar_patch_frontend_resiliencia(driver)
-
-
-def enviar_formulario_cadastro(driver: webdriver.Chrome) -> None:
-    """Envia o formulário de cadastro (botão ou Enter no último campo)."""
-    try:
-        botao = encontrar_elemento(
-            driver,
-            BOTAO_CADASTRO_LOCATORS,
-            descricao="botão de cadastrar",
-            clickable=True,
-            timeout_por_locator=1.5,
-        )
-        botao.click()
-    except TimeoutException:
-        campo_obs = encontrar_elemento(driver, CAMPO_LOCATORS["obs"], descricao="campo obs")
-        campo_obs.send_keys(Keys.ENTER)
-
-
-def ler_lista_produtos_localstorage(driver: webdriver.Chrome) -> List[List[object]]:
-    """Lê `listaProdutos` do localStorage da página."""
-    try:
-        lista = driver.execute_script(
-            """
-            try {
-                const raw = window.localStorage.getItem('listaProdutos');
-                if (!raw) return [];
-                const parsed = JSON.parse(raw);
-                return Array.isArray(parsed) ? parsed : [];
-            } catch (e) {
-                return [];
-            }
-            """
-        )
-        return lista if isinstance(lista, list) else []
-    except Exception:
-        return []
-
-
-def codigo_presente_no_localstorage(lista_produtos: List[List[object]], codigo: str) -> bool:
-    for item in lista_produtos:
-        if isinstance(item, list) and item:
-            if str(item[0]).strip() == str(codigo).strip():
-                return True
-    return False
-
-
-def codigo_aparece_na_lista(driver: webdriver.Chrome, codigo: str, timeout: float = 5.0) -> bool:
-    """Tenta confirmar se o código aparece na seção de produtos cadastrados."""
-    if not codigo:
-        return False
-
-    inicio = time.time()
-    while (time.time() - inicio) < timeout:
-        pagina = driver.page_source
-        if "Produtos Cadastrados" in pagina and codigo in pagina:
-            return True
-
-        # Em alguns ambientes headless, a tabela só rende melhor após scroll.
-        try:
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        except Exception:
-            pass
-
-        time.sleep(0.35)
-
-    return False
-
-
 def confirmar_envio(
     driver: webdriver.Chrome,
     codigo_enviado: str,
@@ -486,16 +417,8 @@ def confirmar_envio(
     qtd_localstorage_antes: int,
     timeout: float = TEMPO_CONFIRMACAO_ENVIO,
 ) -> Tuple[str, str]:
-    """
-    Confirma envio com múltiplas evidências:
-    1) campo 'codigo' voltou vazio (submit aceito)
-    2) localStorage incrementou (fonte da tabela)
-    3) código aparece no localStorage/lista visual quando possível
-
-    Retorna status: ok | ok_parcial | nao_confirmado
-    """
-
     inicio = time.time()
+    limite_sem_evidencia = min(timeout, TEMPO_MAX_ESPERA_SEM_EVIDENCIA)
     campo_limpou = False
 
     while (time.time() - inicio) < timeout:
@@ -504,7 +427,7 @@ def confirmar_envio(
                 driver,
                 CAMPO_LOCATORS["codigo"],
                 descricao="campo código",
-                timeout_por_locator=0.6,
+                timeout_por_locator=0.5,
             )
             campo_limpou = (campo_codigo.get_attribute("value") or "").strip() == ""
         except TimeoutException:
@@ -518,51 +441,37 @@ def confirmar_envio(
             if codigo_presente_na_tabela_dom(driver, codigo_enviado):
                 return (
                     "ok",
-                    (
-                        "envio confirmado na tabela DOM "
-                        f"(linhas {qtd_linhas_tabela_antes} -> {qtd_linhas_tabela_atual})"
-                    ),
+                    f"envio confirmado na tabela DOM (linhas {qtd_linhas_tabela_antes} -> {qtd_linhas_tabela_atual})",
                 )
             return (
                 "ok_parcial",
-                (
-                    "tabela incrementou, mas código não encontrado na primeira coluna "
-                    f"(linhas {qtd_linhas_tabela_antes} -> {qtd_linhas_tabela_atual})"
-                ),
+                f"tabela incrementou sem confirmar código (linhas {qtd_linhas_tabela_antes} -> {qtd_linhas_tabela_atual})",
             )
 
         if qtd_local_atual > qtd_localstorage_antes:
             if codigo_presente_no_localstorage(lista_local, codigo_enviado):
                 return (
                     "ok",
-                    (
-                        "envio confirmado em localStorage "
-                        f"(qtd {qtd_localstorage_antes} -> {qtd_local_atual})"
-                    ),
+                    f"envio confirmado no localStorage (qtd {qtd_localstorage_antes} -> {qtd_local_atual})",
                 )
             return (
                 "ok_parcial",
-                (
-                    "localStorage incrementou, mas código não foi encontrado "
-                    f"(qtd {qtd_localstorage_antes} -> {qtd_local_atual})"
-                ),
+                f"localStorage incrementou sem confirmar código (qtd {qtd_localstorage_antes} -> {qtd_local_atual})",
             )
 
-        if campo_limpou:
-            # A UI aceitou o submit; aguarda mais um pouco o JS persistir no localStorage.
-            time.sleep(0.3)
-        else:
-            time.sleep(0.2)
+        if (time.time() - inicio) >= limite_sem_evidencia:
+            break
 
-    lista_final = ler_lista_produtos_localstorage(driver)
-    qtd_local_final = len(lista_final)
+        time.sleep(0.15)
+
     qtd_linhas_finais = obter_qtd_linhas_tabela(driver)
+    qtd_local_final = len(ler_lista_produtos_localstorage(driver))
 
     if campo_limpou:
         return (
             "ok_parcial",
             (
-                "campo limpou, mas sem incremento em tabela/localStorage no tempo esperado "
+                "campo limpou, mas sem incremento em tabela/localStorage "
                 f"(linhas {qtd_linhas_tabela_antes} -> {qtd_linhas_finais} | "
                 f"localStorage {qtd_localstorage_antes} -> {qtd_local_final})"
             ),
@@ -578,8 +487,69 @@ def confirmar_envio(
     )
 
 
-def cadastrar_produtos(driver: webdriver.Chrome, tabela: pd.DataFrame) -> List[Dict[str, str]]:
-    print(f"[WEB] Cadastrando {len(tabela)} produto(s)...")
+def salvar_relatorio_em_caminho(resultados: List[Dict[str, str]], caminho: Path | None) -> None:
+    if not caminho:
+        return
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    if resultados:
+        df = pd.DataFrame(resultados)
+    else:
+        df = pd.DataFrame(columns=RELATORIO_COLUNAS)
+    df.to_csv(caminho, index=False, encoding="utf-8-sig")
+
+
+def salvar_html_em_caminho(driver: webdriver.Chrome, caminho: Path | None) -> None:
+    if not caminho:
+        return
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    caminho.write_text(driver.page_source, encoding="utf-8")
+
+
+def preparar_pagina_para_exportacao(driver: webdriver.Chrome) -> None:
+    try:
+        altura_anterior = driver.execute_script("return document.body.scrollHeight")
+        for _ in range(20):
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(0.15)
+            altura_atual = driver.execute_script("return document.body.scrollHeight")
+            if altura_atual == altura_anterior:
+                break
+            altura_anterior = altura_atual
+        driver.execute_script("window.scrollTo(0, 0);")
+    except Exception:
+        pass
+
+
+def salvar_pdf_pagina_completa(driver: webdriver.Chrome) -> Path | None:
+    if not SALVAR_PDF_FINAL:
+        return None
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    preparar_pagina_para_exportacao(driver)
+
+    caminho_pdf = LOG_DIR / f"pagina_final_{datetime.now():%Y%m%d_%H%M%S}.pdf"
+    resultado_pdf = driver.execute_cdp_cmd(
+        "Page.printToPDF",
+        {
+            "printBackground": True,
+            "preferCSSPageSize": True,
+            "landscape": False,
+            "marginTop": 0,
+            "marginBottom": 0,
+            "marginLeft": 0,
+            "marginRight": 0,
+        },
+    )
+    caminho_pdf.write_bytes(base64.b64decode(resultado_pdf["data"]))
+    return caminho_pdf
+
+
+def cadastrar_produtos(
+    driver: webdriver.Chrome,
+    tabela: pd.DataFrame,
+    caminho_relatorio_incremental: Path | None = None,
+    caminho_html_incremental: Path | None = None,
+) -> List[Dict[str, str]]:
+    print(f"[WEB] Cadastrando {len(tabela)} produto(s)...", flush=True)
     resultados: List[Dict[str, str]] = []
 
     for indice, (_, linha) in enumerate(tabela.iterrows(), start=1):
@@ -637,8 +607,6 @@ def cadastrar_produtos(driver: webdriver.Chrome, tabela: pd.DataFrame) -> List[D
 
             if status != "ok":
                 qtd_linhas_depois = obter_qtd_linhas_tabela(driver)
-
-                # Só aplica fallback se realmente não houve aumento de linhas.
                 if qtd_linhas_depois <= qtd_linhas_tabela_antes:
                     fallback_ok = inserir_produto_via_fallback_js(driver, registro)
                     if fallback_ok and codigo_presente_na_tabela_dom(driver, registro["codigo"]):
@@ -652,95 +620,22 @@ def cadastrar_produtos(driver: webdriver.Chrome, tabela: pd.DataFrame) -> List[D
         registro["detalhe"] = detalhe
         resultados.append(registro)
 
-        print(f"[WEB] Produto {indice}/{len(tabela)} -> {status}")
+        print(f"[WEB] Produto {indice}/{len(tabela)} -> {status}", flush=True)
+
+        if caminho_relatorio_incremental and (
+            indice % RELATORIO_PARCIAL_CADA == 0 or indice == len(tabela)
+        ):
+            salvar_relatorio_em_caminho(resultados, caminho_relatorio_incremental)
+
+        if caminho_html_incremental and HTML_PARCIAL_CADA > 0 and (
+            indice % HTML_PARCIAL_CADA == 0 or indice == len(tabela)
+        ):
+            try:
+                salvar_html_em_caminho(driver, caminho_html_incremental)
+            except Exception:
+                pass
 
     return resultados
-
-
-def salvar_relatorio(resultados: List[Dict[str, str]]) -> Path | None:
-    if not resultados:
-        return None
-
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    caminho_relatorio = LOG_DIR / f"relatorio_cadastro_{datetime.now():%Y%m%d_%H%M%S}.csv"
-    pd.DataFrame(resultados).to_csv(caminho_relatorio, index=False, encoding="utf-8-sig")
-    return caminho_relatorio
-
-
-def preparar_pagina_para_exportacao(driver: webdriver.Chrome) -> None:
-    """Faz scroll até o fim e volta ao topo para carregar conteúdo dinâmico."""
-    try:
-        altura_anterior = driver.execute_script("return document.body.scrollHeight")
-        for _ in range(20):
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(0.2)
-            altura_atual = driver.execute_script("return document.body.scrollHeight")
-            if altura_atual == altura_anterior:
-                break
-            altura_anterior = altura_atual
-
-        driver.execute_script("window.scrollTo(0, 0);")
-    except Exception:
-        # Se houver bloqueio de script na página, seguimos sem interromper o fluxo.
-        pass
-
-
-def salvar_pdf_pagina_completa(driver: webdriver.Chrome) -> Path | None:
-    if not SALVAR_PDF_FINAL:
-        return None
-
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    preparar_pagina_para_exportacao(driver)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    caminho_pdf = LOG_DIR / f"pagina_final_{timestamp}.pdf"
-
-    try:
-        resultado_pdf = driver.execute_cdp_cmd(
-            "Page.printToPDF",
-            {
-                "printBackground": True,
-                "preferCSSPageSize": True,
-                "landscape": False,
-                "marginTop": 0,
-                "marginBottom": 0,
-                "marginLeft": 0,
-                "marginRight": 0,
-            },
-        )
-
-        pdf_bytes = base64.b64decode(resultado_pdf["data"])
-        caminho_pdf.write_bytes(pdf_bytes)
-        return caminho_pdf
-    except Exception as erro:
-        # Fallback útil para auditoria, caso o PDF falhe em alguma versão de driver/browser.
-        caminho_html = LOG_DIR / f"pagina_final_{timestamp}.html"
-        caminho_html.write_text(driver.page_source, encoding="utf-8")
-        print(
-            "[WEB] Não foi possível gerar PDF da página completa. "
-            f"HTML salvo em: {caminho_html} | erro: {erro}"
-        )
-        return None
-
-
-def sincronizar_estado_visual_final(driver: webdriver.Chrome) -> None:
-    """Recarrega a página para forçar render da tabela a partir do localStorage."""
-    try:
-        driver.refresh()
-        WebDriverWait(driver, 8).until(lambda d: "Produtos Cadastrados" in d.page_source)
-        time.sleep(0.8)
-    except Exception:
-        pass
-
-
-def salvar_html_final(driver: webdriver.Chrome) -> Path | None:
-    if not SALVAR_HTML_FINAL:
-        return None
-
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    caminho_html = LOG_DIR / f"pagina_final_{datetime.now():%Y%m%d_%H%M%S}.html"
-    caminho_html.write_text(driver.page_source, encoding="utf-8")
-    return caminho_html
 
 
 def imprimir_resumo(resultados: List[Dict[str, str]]) -> None:
@@ -750,51 +645,82 @@ def imprimir_resumo(resultados: List[Dict[str, str]]) -> None:
     nao_confirmado = sum(1 for r in resultados if r.get("status_execucao") == "nao_confirmado")
     erro = sum(1 for r in resultados if r.get("status_execucao") == "erro")
 
-    print("[WEB] Resumo da execução:")
-    print(f"       total: {total}")
-    print(f"       ok: {ok}")
-    print(f"       ok parcial: {ok_parcial}")
-    print(f"       não confirmado: {nao_confirmado}")
-    print(f"       erro: {erro}")
+    print("[WEB] Resumo da execução:", flush=True)
+    print(f"       total: {total}", flush=True)
+    print(f"       ok: {ok}", flush=True)
+    print(f"       ok parcial: {ok_parcial}", flush=True)
+    print(f"       não confirmado: {nao_confirmado}", flush=True)
+    print(f"       erro: {erro}", flush=True)
 
 
 def main() -> None:
-    print("[WEB] Iniciando automação sem coordenadas...")
-    tabela = carregar_tabela(CSV_PATH, limite=LIMITE_REGISTROS)
+    print("[WEB] Iniciando automação sem coordenadas...", flush=True)
+    tabela = carregar_tabela(CSV_PATH, limite=LIMITE_REGISTROS, offset=OFFSET_REGISTROS)
 
     if HEADLESS and KEEP_OPEN:
-        print("[WEB] HEADLESS=1 ignora KEEP_OPEN para janela visual.")
+        print("[WEB] HEADLESS=1 ignora KEEP_OPEN para janela visual.", flush=True)
+
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp_execucao = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    caminho_relatorio = (
+        LOG_DIR / f"relatorio_cadastro_{timestamp_execucao}.csv" if GERAR_RELATORIO else None
+    )
+    caminho_html = (
+        LOG_DIR / f"pagina_final_{timestamp_execucao}.html" if SALVAR_HTML_FINAL else None
+    )
+
+    if caminho_relatorio:
+        salvar_relatorio_em_caminho([], caminho_relatorio)
+    if caminho_html:
+        caminho_html.write_text("<html><body>execucao iniciada</body></html>", encoding="utf-8")
 
     driver = iniciar_driver(HEADLESS, KEEP_OPEN)
     resultados: List[Dict[str, str]] = []
-    caminho_relatorio: Path | None = None
-    caminho_pdf: Path | None = None
-    caminho_html: Path | None = None
+    erro_fatal: Exception | None = None
 
     try:
         fazer_login(driver, LOGIN_EMAIL, LOGIN_SENHA)
-        resultados = cadastrar_produtos(driver, tabela)
-        print("[WEB] Processo concluído com sucesso.")
-
-        imprimir_resumo(resultados)
-
-        if GERAR_RELATORIO:
-            caminho_relatorio = salvar_relatorio(resultados)
-            if caminho_relatorio:
-                print(f"[WEB] Relatório salvo em: {caminho_relatorio}")
-
-        caminho_pdf = salvar_pdf_pagina_completa(driver)
-        if caminho_pdf:
-            print(f"[WEB] PDF da página completa salvo em: {caminho_pdf}")
-
-        caminho_html = salvar_html_final(driver)
-        if caminho_html:
-            print(f"[WEB] HTML final salvo em: {caminho_html}")
+        resultados = cadastrar_produtos(
+            driver,
+            tabela,
+            caminho_relatorio_incremental=caminho_relatorio,
+            caminho_html_incremental=caminho_html,
+        )
+        print("[WEB] Processo concluído com sucesso.", flush=True)
+    except Exception as erro:
+        erro_fatal = erro
+        print(f"[WEB] Erro fatal: {erro}", flush=True)
     finally:
+        if resultados:
+            imprimir_resumo(resultados)
+
+        if caminho_relatorio:
+            salvar_relatorio_em_caminho(resultados, caminho_relatorio)
+            print(f"[WEB] Relatório salvo em: {caminho_relatorio}", flush=True)
+
+        if caminho_html:
+            try:
+                salvar_html_em_caminho(driver, caminho_html)
+                print(f"[WEB] HTML final salvo em: {caminho_html}", flush=True)
+            except Exception:
+                pass
+
+        if SALVAR_PDF_FINAL:
+            try:
+                caminho_pdf = salvar_pdf_pagina_completa(driver)
+                if caminho_pdf:
+                    print(f"[WEB] PDF da página completa salvo em: {caminho_pdf}", flush=True)
+            except Exception as erro_pdf:
+                print(f"[WEB] Falha ao gerar PDF: {erro_pdf}", flush=True)
+
         if not (KEEP_OPEN and not HEADLESS):
             driver.quit()
         else:
-            print("[WEB] KEEP_OPEN=1 -> navegador mantido aberto para conferência manual.")
+            print("[WEB] KEEP_OPEN=1 -> navegador mantido aberto para conferência manual.", flush=True)
+
+    if erro_fatal:
+        raise erro_fatal
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ on:
 jobs:
   run-registration:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -32,10 +32,14 @@ jobs:
           HEADLESS: "1"
           KEEP_OPEN: "0"
           GERAR_RELATORIO: "1"
-          SALVAR_PDF_FINAL: "1"
+          SALVAR_PDF_FINAL: "0"
           SALVAR_HTML_FINAL: "1"
-          TEMPO_CONFIRMACAO_ENVIO: "20"
-          LIMITE_REGISTROS: "10"
+          TEMPO_CONFIRMACAO_ENVIO: "6"
+          TEMPO_MAX_ESPERA_SEM_EVIDENCIA: "2.5"
+          RELATORIO_PARCIAL_CADA: "10"
+          HTML_PARCIAL_CADA: "25"
+          OFFSET_REGISTROS: "0"
+          LIMITE_REGISTROS: "0"
         run: python cadastro_web.py
 
       - name: Upload logs artifacts
@@ -43,5 +47,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: logs-registration-web-${{ github.run_id }}
-          path: logs/
+          path: |
+            logs/*.csv
+            logs/*.html
           if-no-files-found: warn
