@@ -1,5 +1,5 @@
-pandas
-pyautogui
-selenium
-streamlit
-plotly
+pandas==2.3.3
+selenium==4.41.0
+streamlit==1.55.0
+plotly==6.6.0
+altair==6.0.0
