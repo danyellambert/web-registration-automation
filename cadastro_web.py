@@ -118,8 +118,13 @@ CAMPO_LOCATORS: Dict[str, List[Locator]] = {
 }
 
 BOTAO_CADASTRO_LOCATORS: List[Locator] = [
-    (By.CSS_SELECTOR, "button[type='submit']"),
+    # Seletor específico do botão Enviar (evita confusão com Limpar)
+    (By.ID, "pgtpy-botao"),
+    (By.CSS_SELECTOR, "button#pgtpy-botao"),
+    (By.XPATH, "//button[@id='pgtpy-botao' and contains(normalize-space(), 'Enviar')]"),
+    # Fallbacks
     (By.XPATH, "//button[contains(., 'Cadastrar') or contains(., 'Enviar')]"),
+    (By.CSS_SELECTOR, "button[type='submit']"),
 ]
 
 
@@ -242,12 +247,19 @@ def enviar_formulario_cadastro(driver: webdriver.Chrome) -> None:
         campo_obs.send_keys(Keys.ENTER)
 
 
-def confirmar_envio(driver: webdriver.Chrome, timeout: float = 4.0) -> Tuple[bool, str]:
+def confirmar_envio(
+    driver: webdriver.Chrome,
+    codigo_enviado: str,
+    timeout: float = 6.0,
+) -> Tuple[bool, str]:
     """
-    Tenta confirmar envio observando se o campo 'codigo' volta vazio após submit.
+    Confirma envio verificando múltiplas evidências:
+    1) campo 'codigo' voltou vazio
+    2) seção "Produtos Cadastrados" presente
+    3) código recém-enviado aparece na página
     """
 
-    def formulario_limpo(_: webdriver.Chrome) -> bool:
+    def envio_confirmado(_: webdriver.Chrome) -> bool:
         try:
             campo_codigo = encontrar_elemento(
                 driver,
@@ -255,15 +267,21 @@ def confirmar_envio(driver: webdriver.Chrome, timeout: float = 4.0) -> Tuple[boo
                 descricao="campo código",
                 timeout_por_locator=0.6,
             )
-            return (campo_codigo.get_attribute("value") or "").strip() == ""
+
+            campo_vazio = (campo_codigo.get_attribute("value") or "").strip() == ""
+            conteudo_pagina = driver.page_source
+            secao_lista_visivel = "Produtos Cadastrados" in conteudo_pagina
+            codigo_visivel = bool(codigo_enviado) and codigo_enviado in conteudo_pagina
+
+            return campo_vazio and secao_lista_visivel and codigo_visivel
         except TimeoutException:
             return False
 
     try:
-        WebDriverWait(driver, timeout).until(formulario_limpo)
-        return True, "formulário limpo após envio"
+        WebDriverWait(driver, timeout).until(envio_confirmado)
+        return True, "envio confirmado: código apareceu em Produtos Cadastrados"
     except TimeoutException:
-        return False, "sem confirmação automática (formulário não limpou no tempo esperado)"
+        return False, "sem confirmação completa: código não apareceu na lista no tempo esperado"
 
 
 def cadastrar_produtos(driver: webdriver.Chrome, tabela: pd.DataFrame) -> List[Dict[str, str]]:
@@ -313,7 +331,7 @@ def cadastrar_produtos(driver: webdriver.Chrome, tabela: pd.DataFrame) -> List[D
             )
 
             enviar_formulario_cadastro(driver)
-            ok, detalhe = confirmar_envio(driver)
+            ok, detalhe = confirmar_envio(driver, registro["codigo"])
             status = "ok" if ok else "nao_confirmado"
         except Exception as erro:
             status = "erro"
