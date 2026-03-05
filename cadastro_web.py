@@ -242,6 +242,79 @@ def aguardar_frontend_tabela_pronto(driver: webdriver.Chrome, timeout: float = 2
     WebDriverWait(driver, timeout).until(pronto)
 
 
+def aplicar_patch_frontend_resiliencia(driver: webdriver.Chrome) -> None:
+    """
+    Em alguns runners cloud, localStorage pode falhar (SecurityError/Quota),
+    quebrando o fluxo dentro de `cliqueiBotao` antes do `updateUI`.
+    Este patch garante que falha de persistência não interrompa o cadastro.
+    """
+    try:
+        driver.execute_script(
+            """
+            try {
+                if (window.__automationPatchApplied) {
+                    return;
+                }
+                window.__automationPatchApplied = true;
+
+                if (typeof window.updateLocalStorage === 'function') {
+                    const originalUpdate = window.updateLocalStorage;
+                    window.updateLocalStorage = function() {
+                        try {
+                            return originalUpdate.apply(this, arguments);
+                        } catch (e) {
+                            console.warn('[AUTOMATION] updateLocalStorage falhou, seguindo sem persistência.', e);
+                            return null;
+                        }
+                    };
+                }
+            } catch (e) {
+                // Mantemos silencioso para não quebrar execução.
+            }
+            """
+        )
+    except Exception:
+        pass
+
+
+def obter_qtd_linhas_tabela(driver: webdriver.Chrome) -> int:
+    try:
+        quantidade = driver.execute_script(
+            """
+            const tbody = document.querySelector('.pgtpy-container-tabela tbody');
+            return tbody ? tbody.querySelectorAll('tr').length : 0;
+            """
+        )
+        return int(quantidade or 0)
+    except Exception:
+        return 0
+
+
+def codigo_presente_na_tabela_dom(driver: webdriver.Chrome, codigo: str) -> bool:
+    if not codigo:
+        return False
+
+    try:
+        return bool(
+            driver.execute_script(
+                """
+                const codigoBusca = String(arguments[0]).trim();
+                const rows = document.querySelectorAll('.pgtpy-container-tabela tbody tr');
+                for (const row of rows) {
+                    const primeiraColuna = row.querySelector('td');
+                    if (primeiraColuna && String(primeiraColuna.textContent || '').trim() === codigoBusca) {
+                        return true;
+                    }
+                }
+                return false;
+                """,
+                codigo,
+            )
+        )
+    except Exception:
+        return False
+
+
 def fazer_login(driver: webdriver.Chrome, email: str, senha: str) -> None:
     driver.get(URL_LOGIN)
 
@@ -263,6 +336,7 @@ def fazer_login(driver: webdriver.Chrome, email: str, senha: str) -> None:
 
     # Garante que o JS da página de tabela está totalmente inicializado.
     aguardar_frontend_tabela_pronto(driver)
+    aplicar_patch_frontend_resiliencia(driver)
 
 
 def enviar_formulario_cadastro(driver: webdriver.Chrome) -> None:
@@ -334,6 +408,7 @@ def codigo_aparece_na_lista(driver: webdriver.Chrome, codigo: str, timeout: floa
 def confirmar_envio(
     driver: webdriver.Chrome,
     codigo_enviado: str,
+    qtd_linhas_tabela_antes: int,
     qtd_localstorage_antes: int,
     timeout: float = TEMPO_CONFIRMACAO_ENVIO,
 ) -> Tuple[str, str]:
@@ -363,6 +438,24 @@ def confirmar_envio(
 
         lista_local = ler_lista_produtos_localstorage(driver)
         qtd_local_atual = len(lista_local)
+        qtd_linhas_tabela_atual = obter_qtd_linhas_tabela(driver)
+
+        if qtd_linhas_tabela_atual > qtd_linhas_tabela_antes:
+            if codigo_presente_na_tabela_dom(driver, codigo_enviado):
+                return (
+                    "ok",
+                    (
+                        "envio confirmado na tabela DOM "
+                        f"(linhas {qtd_linhas_tabela_antes} -> {qtd_linhas_tabela_atual})"
+                    ),
+                )
+            return (
+                "ok_parcial",
+                (
+                    "tabela incrementou, mas código não encontrado na primeira coluna "
+                    f"(linhas {qtd_linhas_tabela_antes} -> {qtd_linhas_tabela_atual})"
+                ),
+            )
 
         if qtd_local_atual > qtd_localstorage_antes:
             if codigo_presente_no_localstorage(lista_local, codigo_enviado):
@@ -389,13 +482,15 @@ def confirmar_envio(
 
     lista_final = ler_lista_produtos_localstorage(driver)
     qtd_local_final = len(lista_final)
+    qtd_linhas_finais = obter_qtd_linhas_tabela(driver)
 
     if campo_limpou:
         return (
             "ok_parcial",
             (
-                "campo limpou, mas localStorage não incrementou no tempo esperado "
-                f"(qtd {qtd_localstorage_antes} -> {qtd_local_final})"
+                "campo limpou, mas sem incremento em tabela/localStorage no tempo esperado "
+                f"(linhas {qtd_linhas_tabela_antes} -> {qtd_linhas_finais} | "
+                f"localStorage {qtd_localstorage_antes} -> {qtd_local_final})"
             ),
         )
 
@@ -403,7 +498,8 @@ def confirmar_envio(
         "nao_confirmado",
         (
             "campo código não limpou após envio "
-            f"(localStorage {qtd_localstorage_antes} -> {qtd_local_final})"
+            f"(linhas {qtd_linhas_tabela_antes} -> {qtd_linhas_finais} | "
+            f"localStorage {qtd_localstorage_antes} -> {qtd_local_final})"
         ),
     )
 
@@ -425,6 +521,7 @@ def cadastrar_produtos(driver: webdriver.Chrome, tabela: pd.DataFrame) -> List[D
         }
 
         try:
+            qtd_linhas_tabela_antes = obter_qtd_linhas_tabela(driver)
             qtd_localstorage_antes = len(ler_lista_produtos_localstorage(driver))
 
             limpar_e_preencher(
@@ -460,6 +557,7 @@ def cadastrar_produtos(driver: webdriver.Chrome, tabela: pd.DataFrame) -> List[D
             status, detalhe = confirmar_envio(
                 driver,
                 registro["codigo"],
+                qtd_linhas_tabela_antes=qtd_linhas_tabela_antes,
                 qtd_localstorage_antes=qtd_localstorage_antes,
             )
         except Exception as erro:

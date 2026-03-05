@@ -33,6 +33,8 @@ jobs:
           KEEP_OPEN: "0"
           GERAR_RELATORIO: "1"
           SALVAR_PDF_FINAL: "1"
+          SALVAR_HTML_FINAL: "1"
+          TEMPO_CONFIRMACAO_ENVIO: "20"
           LIMITE_REGISTROS: "5"
         run: python cadastro_web.py
 
