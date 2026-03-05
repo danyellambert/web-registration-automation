@@ -35,7 +35,7 @@ jobs:
           SALVAR_PDF_FINAL: "1"
           SALVAR_HTML_FINAL: "1"
           TEMPO_CONFIRMACAO_ENVIO: "20"
-          LIMITE_REGISTROS: "0"
+          LIMITE_REGISTROS: "10"
         run: python cadastro_web.py
 
       - name: Upload logs artifacts
