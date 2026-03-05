@@ -49,6 +49,12 @@ GERAR_RELATORIO = os.getenv("GERAR_RELATORIO", "1") == "1"
 # Gera PDF da página completa para auditoria.
 SALVAR_PDF_FINAL = os.getenv("SALVAR_PDF_FINAL", "1") == "1"
 
+# Salva também HTML final para depuração (útil quando PDF não mostra tudo).
+SALVAR_HTML_FINAL = os.getenv("SALVAR_HTML_FINAL", "1") == "1"
+
+# Timeout base para confirmação de envio.
+TEMPO_CONFIRMACAO_ENVIO = float(os.getenv("TEMPO_CONFIRMACAO_ENVIO", "10"))
+
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 
 # =========================
@@ -247,19 +253,42 @@ def enviar_formulario_cadastro(driver: webdriver.Chrome) -> None:
         campo_obs.send_keys(Keys.ENTER)
 
 
+def codigo_aparece_na_lista(driver: webdriver.Chrome, codigo: str, timeout: float = 5.0) -> bool:
+    """Tenta confirmar se o código aparece na seção de produtos cadastrados."""
+    if not codigo:
+        return False
+
+    inicio = time.time()
+    while (time.time() - inicio) < timeout:
+        pagina = driver.page_source
+        if "Produtos Cadastrados" in pagina and codigo in pagina:
+            return True
+
+        # Em alguns ambientes headless, a tabela só rende melhor após scroll.
+        try:
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        except Exception:
+            pass
+
+        time.sleep(0.35)
+
+    return False
+
+
 def confirmar_envio(
     driver: webdriver.Chrome,
     codigo_enviado: str,
-    timeout: float = 6.0,
-) -> Tuple[bool, str]:
+    timeout: float = TEMPO_CONFIRMACAO_ENVIO,
+) -> Tuple[str, str]:
     """
-    Confirma envio verificando múltiplas evidências:
-    1) campo 'codigo' voltou vazio
-    2) seção "Produtos Cadastrados" presente
-    3) código recém-enviado aparece na página
+    Confirma envio com estratégia em 2 etapas:
+    1) campo 'codigo' voltou vazio (sinal de submit aceito)
+    2) tenta confirmar visualmente na lista de cadastrados
+
+    Retorna status: ok | ok_parcial | nao_confirmado
     """
 
-    def envio_confirmado(_: webdriver.Chrome) -> bool:
+    def campo_codigo_limpo(_: webdriver.Chrome) -> bool:
         try:
             campo_codigo = encontrar_elemento(
                 driver,
@@ -268,20 +297,22 @@ def confirmar_envio(
                 timeout_por_locator=0.6,
             )
 
-            campo_vazio = (campo_codigo.get_attribute("value") or "").strip() == ""
-            conteudo_pagina = driver.page_source
-            secao_lista_visivel = "Produtos Cadastrados" in conteudo_pagina
-            codigo_visivel = bool(codigo_enviado) and codigo_enviado in conteudo_pagina
-
-            return campo_vazio and secao_lista_visivel and codigo_visivel
+            return (campo_codigo.get_attribute("value") or "").strip() == ""
         except TimeoutException:
             return False
 
     try:
-        WebDriverWait(driver, timeout).until(envio_confirmado)
-        return True, "envio confirmado: código apareceu em Produtos Cadastrados"
+        WebDriverWait(driver, timeout).until(campo_codigo_limpo)
+
+        if codigo_aparece_na_lista(driver, codigo_enviado, timeout=5.0):
+            return "ok", "envio confirmado: código apareceu em Produtos Cadastrados"
+
+        return (
+            "ok_parcial",
+            "formulário aceitou envio, mas código não foi confirmado visualmente na lista (headless/cloud)",
+        )
     except TimeoutException:
-        return False, "sem confirmação completa: código não apareceu na lista no tempo esperado"
+        return "nao_confirmado", "campo código não limpou após envio (submit possivelmente não executado)"
 
 
 def cadastrar_produtos(driver: webdriver.Chrome, tabela: pd.DataFrame) -> List[Dict[str, str]]:
@@ -331,8 +362,7 @@ def cadastrar_produtos(driver: webdriver.Chrome, tabela: pd.DataFrame) -> List[D
             )
 
             enviar_formulario_cadastro(driver)
-            ok, detalhe = confirmar_envio(driver, registro["codigo"])
-            status = "ok" if ok else "nao_confirmado"
+            status, detalhe = confirmar_envio(driver, registro["codigo"])
         except Exception as erro:
             status = "erro"
             detalhe = str(erro)
@@ -412,15 +442,27 @@ def salvar_pdf_pagina_completa(driver: webdriver.Chrome) -> Path | None:
         return None
 
 
+def salvar_html_final(driver: webdriver.Chrome) -> Path | None:
+    if not SALVAR_HTML_FINAL:
+        return None
+
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    caminho_html = LOG_DIR / f"pagina_final_{datetime.now():%Y%m%d_%H%M%S}.html"
+    caminho_html.write_text(driver.page_source, encoding="utf-8")
+    return caminho_html
+
+
 def imprimir_resumo(resultados: List[Dict[str, str]]) -> None:
     total = len(resultados)
     ok = sum(1 for r in resultados if r.get("status_execucao") == "ok")
+    ok_parcial = sum(1 for r in resultados if r.get("status_execucao") == "ok_parcial")
     nao_confirmado = sum(1 for r in resultados if r.get("status_execucao") == "nao_confirmado")
     erro = sum(1 for r in resultados if r.get("status_execucao") == "erro")
 
     print("[WEB] Resumo da execução:")
     print(f"       total: {total}")
     print(f"       ok: {ok}")
+    print(f"       ok parcial: {ok_parcial}")
     print(f"       não confirmado: {nao_confirmado}")
     print(f"       erro: {erro}")
 
@@ -436,6 +478,7 @@ def main() -> None:
     resultados: List[Dict[str, str]] = []
     caminho_relatorio: Path | None = None
     caminho_pdf: Path | None = None
+    caminho_html: Path | None = None
 
     try:
         fazer_login(driver, LOGIN_EMAIL, LOGIN_SENHA)
@@ -452,6 +495,10 @@ def main() -> None:
         caminho_pdf = salvar_pdf_pagina_completa(driver)
         if caminho_pdf:
             print(f"[WEB] PDF da página completa salvo em: {caminho_pdf}")
+
+        caminho_html = salvar_html_final(driver)
+        if caminho_html:
+            print(f"[WEB] HTML final salvo em: {caminho_html}")
     finally:
         if not (KEEP_OPEN and not HEADLESS):
             driver.quit()
