@@ -86,6 +86,27 @@ Se todos estiverem configurados, o workflow envia um email no fim da execução:
 - `SMTP_PASSWORD`
 - `EMAIL_TO`
 - `EMAIL_FROM`
+- `SMTP_SECURE` (opcional, padrão `true`)
+
+#### Exemplo rápido (Gmail)
+
+- `SMTP_SERVER = smtp.gmail.com`
+- `SMTP_PORT = 465`
+- `SMTP_SECURE = true`
+- `SMTP_USERNAME = seuemail@gmail.com`
+- `SMTP_PASSWORD = APP PASSWORD de 16 caracteres` (não é a senha normal)
+- `EMAIL_FROM = seuemail@gmail.com`
+- `EMAIL_TO = seuemail@gmail.com`
+
+> Importante: no Gmail, habilite 2FA e gere uma **App Password**.
+> Erro `535-5.7.8 Username and Password not accepted` normalmente indica
+> credencial inválida (senha normal no lugar da App Password, usuário incorreto,
+> ou app password expirada).
+
+#### Observação de robustez
+
+Se o SMTP falhar, o workflow **não derruba a automação principal**.
+Ele registra aviso no summary e continua publicando artifacts.
 
 ### O que o workflow gera
 

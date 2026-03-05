@@ -125,15 +125,17 @@ jobs:
             echo "enabled=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Send execution email
+      - name: Send execution email (optional)
         if: always() && steps.email_config.outputs.enabled == 'true'
+        id: send_email
+        continue-on-error: true
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT }}
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          secure: true
+          secure: ${{ secrets.SMTP_SECURE || 'true' }}
           subject: "[Registration Web] Run #${{ github.run_number }} - ${{ job.status }}"
           to: ${{ secrets.EMAIL_TO }}
           from: ${{ secrets.EMAIL_FROM }}
@@ -151,6 +153,35 @@ jobs:
             </ul>
             <p><a href="${{ env.RUN_URL }}">Abrir execução no GitHub Actions</a></p>
           attachments: logs/run_summary.json,logs/run_summary.md
+
+      - name: Report email status in summary
+        if: always()
+        run: |
+          if [ "${{ steps.email_config.outputs.enabled }}" != "true" ]; then
+            {
+              echo ""
+              echo "## 📧 Status do email"
+              echo "- ℹ️ Email não enviado porque os secrets SMTP não estão completos."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ "${{ steps.send_email.outcome }}" = "success" ]; then
+            {
+              echo ""
+              echo "## 📧 Status do email"
+              echo "- ✅ Email enviado com sucesso."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo ""
+              echo "## 📧 Status do email"
+              echo "- ⚠️ Falha no envio do email (a automação principal continuou normalmente)."
+              echo "- Verifique credenciais SMTP e formato do usuário/senha."
+              echo "- Gmail: usar App Password de 16 caracteres com 2FA ativa."
+              echo "- Outlook/Office365: tentar porta 587 com SMTP_SECURE=false."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload logs artifacts
         if: always()
