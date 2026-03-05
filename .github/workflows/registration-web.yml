@@ -33,7 +33,7 @@ jobs:
           KEEP_OPEN: "0"
           GERAR_RELATORIO: "1"
           SALVAR_PDF_FINAL: "1"
-          LIMITE_REGISTROS: "0"
+          LIMITE_REGISTROS: "5"
         run: python cadastro_web.py
 
       - name: Upload logs artifacts
