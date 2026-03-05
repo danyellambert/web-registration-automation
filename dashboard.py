@@ -16,9 +16,19 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+
+def _int_env(nome: str, padrao: int) -> int:
+    try:
+        valor = int(os.getenv(nome, str(padrao)))
+        return valor if valor > 0 else padrao
+    except Exception:
+        return padrao
+
+
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 HISTORY_CSV = Path(__file__).resolve().parent / "analytics" / "history_runs.csv"
 HISTORY_REMOTE_URL = os.getenv("HISTORY_REMOTE_URL", "").strip()
+CACHE_TTL_SECONDS = _int_env("DASHBOARD_CACHE_TTL", 60)
 
 PATTERN_RELATORIO = "relatorio_cadastro_*.csv"
 COLUNAS_BASE = [
@@ -71,7 +81,7 @@ def extrair_execucao_do_nome(nome_arquivo: str) -> tuple[str, pd.Timestamp]:
     return run_id, run_datetime
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=CACHE_TTL_SECONDS)
 def carregar_relatorios(log_dir: str) -> pd.DataFrame:
     diretorio_logs = Path(log_dir)
     if not diretorio_logs.exists():
@@ -114,7 +124,7 @@ def carregar_relatorios(log_dir: str) -> pd.DataFrame:
     return dados
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=CACHE_TTL_SECONDS)
 def carregar_historico(history_csv: str, history_remote_url: str = "") -> pd.DataFrame:
     caminho = Path(history_csv)
     historico = pd.DataFrame()
@@ -193,6 +203,9 @@ def main() -> None:
         "a partir dos relatórios em logs/ e do histórico consolidado em analytics/."
     )
 
+    if "auto_refresh" not in st.session_state:
+        st.session_state.auto_refresh = False
+
     dados = carregar_relatorios(str(LOG_DIR))
     historico = carregar_historico(str(HISTORY_CSV), HISTORY_REMOTE_URL)
 
@@ -222,6 +235,19 @@ def main() -> None:
     )
 
     with st.sidebar:
+        st.header("Atualização")
+        st.caption(f"Cache do dashboard: ~{CACHE_TTL_SECONDS}s")
+
+        if st.button("🔄 Atualizar agora", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+
+        st.session_state.auto_refresh = st.toggle(
+            f"Auto-refresh ({CACHE_TTL_SECONDS}s)",
+            value=st.session_state.auto_refresh,
+        )
+
+        st.divider()
         st.header("Filtros")
         periodo = st.date_input(
             "Período da execução",
@@ -237,6 +263,19 @@ def main() -> None:
         )
 
         busca = st.text_input("Buscar por código ou marca", value="").strip()
+
+    if st.session_state.auto_refresh:
+        refresh_ms = CACHE_TTL_SECONDS * 1000
+        st.markdown(
+            f"""
+            <script>
+            setTimeout(function() {{
+                window.parent.location.reload();
+            }}, {refresh_ms});
+            </script>
+            """,
+            unsafe_allow_html=True,
+        )
 
     inicio, fim = normalizar_periodo(periodo, min_date, max_date)
 

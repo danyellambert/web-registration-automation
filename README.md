@@ -140,3 +140,22 @@ O `dashboard.py` agora lê duas fontes:
 
 Opcionalmente, você pode definir a variável de ambiente `HISTORY_REMOTE_URL`
 para carregar um CSV remoto de histórico quando não houver arquivo local.
+
+### Atualização automática do dashboard (sem reboot)
+
+O dashboard possui controles para evitar reboot manual:
+
+- botão **🔄 Atualizar agora** (limpa cache e recarrega dados)
+- toggle **Auto-refresh** no intervalo configurado
+- cache com TTL configurável via variável de ambiente
+
+Variável opcional:
+
+- `DASHBOARD_CACHE_TTL` (segundos, padrão `60`)
+
+Exemplo no Streamlit Cloud (Settings → Secrets):
+
+```toml
+HISTORY_REMOTE_URL = "https://raw.githubusercontent.com/danyellambert/web-registration-automation/main/analytics/history_runs.csv"
+DASHBOARD_CACHE_TTL = "60"
+```
