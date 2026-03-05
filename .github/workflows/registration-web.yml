@@ -1,12 +1,55 @@
-name: Registration Web (Manual)
+name: Registration Web (Cloud)
 
 on:
   workflow_dispatch:
+    inputs:
+      limite_registros:
+        description: "Quantidade máxima de registros (0 = sem limite)"
+        required: false
+        default: "0"
+      offset_registros:
+        description: "Pular os N primeiros registros"
+        required: false
+        default: "0"
+      tempo_confirmacao_envio:
+        description: "Tempo máximo para confirmar envio (segundos)"
+        required: false
+        default: "6"
+      tempo_max_espera_sem_evidencia:
+        description: "Tempo máximo sem evidência antes de fallback (segundos)"
+        required: false
+        default: "2.5"
+      relatorio_parcial_cada:
+        description: "Persistir relatório parcial a cada N registros"
+        required: false
+        default: "10"
+      html_parcial_cada:
+        description: "Persistir HTML parcial a cada N registros"
+        required: false
+        default: "25"
+      salvar_html_final:
+        description: "Salvar HTML final (1/0)"
+        required: false
+        default: "1"
+      salvar_pdf_final:
+        description: "Salvar PDF final (1/0)"
+        required: false
+        default: "0"
+  schedule:
+    - cron: "0 11 * * *"
+
+permissions:
+  contents: read
 
 jobs:
   run-registration:
+    # Cron opcional: habilite com Repository Variable ENABLE_REGISTRATION_SCHEDULE=true
+    if: ${{ github.event_name != 'schedule' || vars.ENABLE_REGISTRATION_SCHEDULE == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+
+    env:
+      RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
     steps:
       - name: Checkout
@@ -32,15 +75,82 @@ jobs:
           HEADLESS: "1"
           KEEP_OPEN: "0"
           GERAR_RELATORIO: "1"
-          SALVAR_PDF_FINAL: "0"
-          SALVAR_HTML_FINAL: "1"
-          TEMPO_CONFIRMACAO_ENVIO: "6"
-          TEMPO_MAX_ESPERA_SEM_EVIDENCIA: "2.5"
-          RELATORIO_PARCIAL_CADA: "10"
-          HTML_PARCIAL_CADA: "25"
-          OFFSET_REGISTROS: "0"
-          LIMITE_REGISTROS: "0"
+          SALVAR_PDF_FINAL: ${{ github.event_name == 'workflow_dispatch' && inputs.salvar_pdf_final || '0' }}
+          SALVAR_HTML_FINAL: ${{ github.event_name == 'workflow_dispatch' && inputs.salvar_html_final || '1' }}
+          TEMPO_CONFIRMACAO_ENVIO: ${{ github.event_name == 'workflow_dispatch' && inputs.tempo_confirmacao_envio || '6' }}
+          TEMPO_MAX_ESPERA_SEM_EVIDENCIA: ${{ github.event_name == 'workflow_dispatch' && inputs.tempo_max_espera_sem_evidencia || '2.5' }}
+          RELATORIO_PARCIAL_CADA: ${{ github.event_name == 'workflow_dispatch' && inputs.relatorio_parcial_cada || '10' }}
+          HTML_PARCIAL_CADA: ${{ github.event_name == 'workflow_dispatch' && inputs.html_parcial_cada || '25' }}
+          OFFSET_REGISTROS: ${{ github.event_name == 'workflow_dispatch' && inputs.offset_registros || '0' }}
+          LIMITE_REGISTROS: ${{ github.event_name == 'workflow_dispatch' && inputs.limite_registros || '0' }}
         run: python cadastro_web.py
+
+      - name: Generate execution summary
+        if: always()
+        id: summary
+        run: |
+          python scripts/summarize_run.py \
+            --logs-dir logs \
+            --json-output logs/run_summary.json \
+            --markdown-output logs/run_summary.md \
+            --run-url "$RUN_URL"
+
+      - name: Publish summary in GitHub UI
+        if: always()
+        run: |
+          cat logs/run_summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check SMTP/email settings
+        if: always()
+        id: email_config
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+        run: |
+          missing=0
+          for var in SMTP_SERVER SMTP_PORT SMTP_USERNAME SMTP_PASSWORD EMAIL_TO EMAIL_FROM; do
+            if [ -z "${!var}" ]; then
+              echo "[WARN] Secret ausente: $var"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -eq 0 ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Send execution email
+        if: always() && steps.email_config.outputs.enabled == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          secure: true
+          subject: "[Registration Web] Run #${{ github.run_number }} - ${{ job.status }}"
+          to: ${{ secrets.EMAIL_TO }}
+          from: ${{ secrets.EMAIL_FROM }}
+          html_body: |
+            <h2>Resumo da automação de cadastro</h2>
+            <ul>
+              <li><b>Status do job:</b> ${{ job.status }}</li>
+              <li><b>Total processado:</b> ${{ steps.summary.outputs.total }}</li>
+              <li><b>OK:</b> ${{ steps.summary.outputs.ok }}</li>
+              <li><b>OK parcial:</b> ${{ steps.summary.outputs.ok_parcial }}</li>
+              <li><b>Não confirmado:</b> ${{ steps.summary.outputs.nao_confirmado }}</li>
+              <li><b>Erro:</b> ${{ steps.summary.outputs.erro }}</li>
+              <li><b>Falhas críticas:</b> ${{ steps.summary.outputs.falhas_criticas }}</li>
+              <li><b>Taxa de sucesso:</b> ${{ steps.summary.outputs.success_rate }}%</li>
+            </ul>
+            <p><a href="${{ env.RUN_URL }}">Abrir execução no GitHub Actions</a></p>
+          attachments: logs/run_summary.json,logs/run_summary.md
 
       - name: Upload logs artifacts
         if: always()
@@ -50,4 +160,8 @@ jobs:
           path: |
             logs/*.csv
             logs/*.html
+            logs/*.pdf
+            logs/run_summary.json
+            logs/run_summary.md
           if-no-files-found: warn
+          retention-days: 14

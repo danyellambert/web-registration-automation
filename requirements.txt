@@ -1,3 +1,5 @@
 pandas
 pyautogui
 selenium
+streamlit
+plotly

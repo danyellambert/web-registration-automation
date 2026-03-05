@@ -4,3 +4,9 @@ __pycache__/
 .DS_Store
 logs/
 .env
+
+# arquivos locais (estudo/material) - não subir para o Git
+experiments/
+materials_local/
+aula/*.pdf
+aula/*.mp4
