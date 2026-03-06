@@ -114,6 +114,7 @@ Ele registra aviso no summary e continua publicando artifacts.
 - `logs/run_summary.json`
 - `logs/run_summary.md`
 - `analytics/history_runs.csv` (histórico consolidado de execuções)
+- `analytics/detailed_runs.csv` (base detalhada consolidada por registro)
 - resumo no `GITHUB_STEP_SUMMARY`
 
 ## Histórico consolidado (Fase 3)
@@ -138,8 +139,15 @@ O `dashboard.py` agora lê duas fontes:
 1. `logs/relatorio_cadastro_*.csv` (detalhe local por registro)
 2. `analytics/history_runs.csv` (histórico consolidado por execução)
 
+Quando estiver em ambiente cloud sem a pasta `logs/`, o dashboard usa fallback para:
+
+- `analytics/detailed_runs.csv` (base detalhada versionada no repositório)
+
 Opcionalmente, você pode definir a variável de ambiente `HISTORY_REMOTE_URL`
 para carregar um CSV remoto de histórico quando não houver arquivo local.
+
+Opcionalmente, você pode definir `DETAILED_REMOTE_URL` para carregar a base detalhada
+de um CSV remoto quando necessário.
 
 ### Atualização automática do dashboard (sem reboot)
 
@@ -157,5 +165,12 @@ Exemplo no Streamlit Cloud (Settings → Secrets):
 
 ```toml
 HISTORY_REMOTE_URL = "https://raw.githubusercontent.com/danyellambert/web-registration-automation/main/analytics/history_runs.csv"
+DETAILED_REMOTE_URL = "https://raw.githubusercontent.com/danyellambert/web-registration-automation/main/analytics/detailed_runs.csv"
 DASHBOARD_CACHE_TTL = "60"
 ```
+
+### Link do dashboard no email da execução
+
+O email enviado pelo workflow agora inclui também o link direto do dashboard:
+
+- `https://web-registration-automation-dashboard.streamlit.app/`

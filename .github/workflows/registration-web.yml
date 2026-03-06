@@ -50,6 +50,7 @@ jobs:
 
     env:
       RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      DASHBOARD_URL: https://web-registration-automation-dashboard.streamlit.app/
 
     steps:
       - name: Checkout
@@ -115,6 +116,14 @@ jobs:
             --event-name "${{ github.event_name }}" \
             --run-url "$RUN_URL"
 
+      - name: Update detailed history (analytics/detailed_runs.csv)
+        if: always() && steps.summary.outputs.has_report == 'true'
+        run: |
+          python scripts/update_detailed_history.py \
+            --report-csv "${{ steps.summary.outputs.report_path }}" \
+            --detailed-csv analytics/detailed_runs.csv \
+            --github-run-id "${{ github.run_id }}"
+
       - name: Commit analytics history
         if: always()
         id: commit_history
@@ -125,7 +134,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add analytics/history_runs.csv
+          git add analytics/history_runs.csv analytics/detailed_runs.csv
 
           if git diff --staged --quiet; then
             echo "No history changes to commit."
@@ -151,14 +160,14 @@ jobs:
               {
                 echo ""
                 echo "## 🗂️ Histórico consolidado"
-                echo "- ✅ Histórico atualizado e push realizado em \`analytics/history_runs.csv\`."
+                echo "- ✅ Histórico atualizado e push realizado em \`analytics/history_runs.csv\` e \`analytics/detailed_runs.csv\`."
               } >> "$GITHUB_STEP_SUMMARY"
               ;;
             no_changes)
               {
                 echo ""
                 echo "## 🗂️ Histórico consolidado"
-                echo "- ℹ️ Nenhuma mudança detectada no histórico para esta execução."
+                echo "- ℹ️ Nenhuma mudança detectada no histórico/detalhado para esta execução."
               } >> "$GITHUB_STEP_SUMMARY"
               ;;
             push_failed)
@@ -229,6 +238,7 @@ jobs:
               <li><b>Taxa de sucesso:</b> ${{ steps.summary.outputs.success_rate }}%</li>
             </ul>
             <p><a href="${{ env.RUN_URL }}">Abrir execução no GitHub Actions</a></p>
+            <p><a href="${{ env.DASHBOARD_URL }}">Abrir dashboard executivo (Streamlit)</a></p>
           attachments: logs/run_summary.json,logs/run_summary.md
 
       - name: Report email status in summary
@@ -272,5 +282,6 @@ jobs:
             logs/run_summary.json
             logs/run_summary.md
             analytics/history_runs.csv
+            analytics/detailed_runs.csv
           if-no-files-found: warn
           retention-days: 14

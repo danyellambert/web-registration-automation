@@ -29,7 +29,9 @@ def _int_env(nome: str, padrao: int) -> int:
 
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 HISTORY_CSV = Path(__file__).resolve().parent / "analytics" / "history_runs.csv"
+DASHBOARD_DETAILED_CSV = Path(__file__).resolve().parent / "analytics" / "detailed_runs.csv"
 HISTORY_REMOTE_URL = os.getenv("HISTORY_REMOTE_URL", "").strip()
+DETAILED_REMOTE_URL = os.getenv("DETAILED_REMOTE_URL", "").strip()
 CACHE_TTL_SECONDS = _int_env("DASHBOARD_CACHE_TTL", 60)
 
 PATTERN_RELATORIO = "relatorio_cadastro_*.csv"
@@ -128,6 +130,54 @@ def carregar_relatorios(log_dir: str) -> pd.DataFrame:
 
     dados["margem_unitaria"] = dados["preco_unitario"] - dados["custo"]
     return dados
+
+
+@st.cache_data(show_spinner=False, ttl=CACHE_TTL_SECONDS)
+def carregar_detalhado_cloud(detailed_csv: str, detailed_remote_url: str = "") -> pd.DataFrame:
+    caminho = Path(detailed_csv)
+    detalhado = pd.DataFrame()
+
+    if caminho.exists() and caminho.stat().st_size > 0:
+        try:
+            detalhado = pd.read_csv(caminho, encoding="utf-8-sig")
+        except Exception:
+            detalhado = pd.DataFrame()
+
+    if detalhado.empty and detailed_remote_url:
+        try:
+            detalhado = pd.read_csv(detailed_remote_url)
+        except Exception:
+            detalhado = pd.DataFrame()
+
+    if detalhado.empty:
+        return pd.DataFrame()
+
+    for coluna in COLUNAS_BASE:
+        if coluna not in detalhado.columns:
+            detalhado[coluna] = pd.NA
+
+    if "run_id" not in detalhado.columns:
+        detalhado["run_id"] = "desconhecido"
+
+    if "run_datetime" not in detalhado.columns:
+        if "report_file" in detalhado.columns:
+            detalhado["run_datetime"] = detalhado["report_file"].apply(
+                lambda nome: extrair_execucao_do_nome(str(nome))[1]
+            )
+        else:
+            detalhado["run_datetime"] = pd.NaT
+
+    detalhado["run_datetime"] = pd.to_datetime(detalhado["run_datetime"], errors="coerce")
+    detalhado["run_date"] = detalhado["run_datetime"].dt.date
+
+    for coluna in ["codigo", "marca", "tipo", "categoria", "status_execucao", "detalhe"]:
+        detalhado[coluna] = detalhado[coluna].fillna("").astype(str)
+
+    for coluna_num in ["preco_unitario", "custo"]:
+        detalhado[coluna_num] = pd.to_numeric(detalhado[coluna_num], errors="coerce").fillna(0.0)
+
+    detalhado["margem_unitaria"] = detalhado["preco_unitario"] - detalhado["custo"]
+    return detalhado
 
 
 @st.cache_data(show_spinner=False, ttl=CACHE_TTL_SECONDS)
@@ -242,7 +292,12 @@ def main() -> None:
     if "auto_refresh" not in st.session_state:
         st.session_state.auto_refresh = False
 
+    dados_origem = "logs"
     dados = carregar_relatorios(str(LOG_DIR))
+    if dados.empty:
+        dados = carregar_detalhado_cloud(str(DASHBOARD_DETAILED_CSV), DETAILED_REMOTE_URL)
+        if not dados.empty:
+            dados_origem = "analytics"
     historico = carregar_historico(str(HISTORY_CSV), HISTORY_REMOTE_URL)
 
     if dados.empty and historico.empty:
@@ -250,6 +305,12 @@ def main() -> None:
             "Sem dados disponíveis. Rode a automação para gerar `logs/` e `analytics/history_runs.csv`."
         )
         return
+
+    if dados_origem == "analytics":
+        st.info(
+            "Base detalhada carregada do histórico consolidado em `analytics/detailed_runs.csv` "
+            "(modo cloud, sem `logs/` locais)."
+        )
 
     datas_partes = []
     if not dados.empty:
