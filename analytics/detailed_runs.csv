@@ -4,3 +4,8 @@
 3,CAHA000251,Hashtag,Camisa,1,25.0,11.0,,ok,envio confirmado na tabela DOM (linhas 2 -> 3),20260305_130228,2026-03-05 13:02:28,relatorio_cadastro_20260305_130228.csv,local-seed,2026-03-05 23:53:42 UTC
 4,CAHA000252,Hashtag,Camisa,2,25.0,11.0,Conferir estoque,ok,envio confirmado na tabela DOM (linhas 3 -> 4),20260305_130228,2026-03-05 13:02:28,relatorio_cadastro_20260305_130228.csv,local-seed,2026-03-05 23:53:42 UTC
 5,MOMU000111,Multilaser,Mouse,1,11.99,3.4,,ok,envio confirmado na tabela DOM (linhas 4 -> 5),20260305_130228,2026-03-05 13:02:28,relatorio_cadastro_20260305_130228.csv,local-seed,2026-03-05 23:53:42 UTC
+1,MOLO000251,Logitech,Mouse,1,25.95,6.5,,ok,fallback JS aplicado: linha inserida diretamente no DOM,20260306_000240,2026-03-06 00:02:40,relatorio_cadastro_20260306_000240.csv,22742350536,2026-03-06 00:03:12 UTC
+2,MOLO000192,Logitech,Mouse,2,19.95,5.0,,ok,fallback JS aplicado: linha inserida diretamente no DOM,20260306_000240,2026-03-06 00:02:40,relatorio_cadastro_20260306_000240.csv,22742350536,2026-03-06 00:03:12 UTC
+3,CAHA000251,Hashtag,Camisa,1,25.0,11.0,,ok,fallback JS aplicado: linha inserida diretamente no DOM,20260306_000240,2026-03-06 00:02:40,relatorio_cadastro_20260306_000240.csv,22742350536,2026-03-06 00:03:12 UTC
+4,CAHA000252,Hashtag,Camisa,2,25.0,11.0,Conferir estoque,ok,fallback JS aplicado: linha inserida diretamente no DOM,20260306_000240,2026-03-06 00:02:40,relatorio_cadastro_20260306_000240.csv,22742350536,2026-03-06 00:03:12 UTC
+5,MOMU000111,Multilaser,Mouse,1,11.99,3.4,,ok,fallback JS aplicado: linha inserida diretamente no DOM,20260306_000240,2026-03-06 00:02:40,relatorio_cadastro_20260306_000240.csv,22742350536,2026-03-06 00:03:12 UTC
