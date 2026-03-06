@@ -156,6 +156,12 @@ def carregar_detalhado_cloud(detailed_csv: str, detailed_remote_url: str = "") -
         if coluna not in detalhado.columns:
             detalhado[coluna] = pd.NA
 
+    if "arquivo_origem" not in detalhado.columns:
+        if "report_file" in detalhado.columns:
+            detalhado["arquivo_origem"] = detalhado["report_file"].fillna("").astype(str)
+        else:
+            detalhado["arquivo_origem"] = "analytics/detailed_runs.csv"
+
     if "run_id" not in detalhado.columns:
         detalhado["run_id"] = "desconhecido"
 
@@ -170,7 +176,15 @@ def carregar_detalhado_cloud(detailed_csv: str, detailed_remote_url: str = "") -
     detalhado["run_datetime"] = pd.to_datetime(detalhado["run_datetime"], errors="coerce")
     detalhado["run_date"] = detalhado["run_datetime"].dt.date
 
-    for coluna in ["codigo", "marca", "tipo", "categoria", "status_execucao", "detalhe"]:
+    for coluna in [
+        "codigo",
+        "marca",
+        "tipo",
+        "categoria",
+        "status_execucao",
+        "detalhe",
+        "arquivo_origem",
+    ]:
         detalhado[coluna] = detalhado[coluna].fillna("").astype(str)
 
     for coluna_num in ["preco_unitario", "custo"]:
