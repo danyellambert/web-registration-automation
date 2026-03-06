@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-This document describes the technical architecture of the web registration automation platform, including runtime components, data flow, fault-tolerance behavior, and cloud execution lifecycle.
+This document describes the technical architecture of the web registration automation platform, including runtime components, data flow, resilience behavior, and cloud execution lifecycle.
 
 ---
 
@@ -26,7 +26,7 @@ Core design goals:
 Responsibilities:
 
 - read source dataset (`data/produtos.csv`)
-- authenticate in target web app
+- authenticate in the target web app
 - fill and submit registration form per record
 - validate submission with evidence signals
 - apply fallback logic when frontend evidence is unstable
@@ -65,7 +65,7 @@ Responsibilities:
 ```text
 data/produtos.csv
     -> cadastro_web.py
-    -> logs/relatorio_cadastro_*.csv
+    -> logs/registration_report_*.csv
     -> scripts/summarize_run.py
     -> logs/run_summary.json + logs/run_summary.md
     -> scripts/update_history.py            -> analytics/history_runs.csv
@@ -73,21 +73,25 @@ data/produtos.csv
     -> dashboard.py (logs + analytics + optional remote URLs)
 ```
 
+Legacy report names are still supported for backward compatibility:
+
+- `logs/relatorio_cadastro_*.csv`
+
 ---
 
 ## 5. Automation Runtime Internals
 
 ### 5.1 Input Validation Layer
 
-`carregar_tabela()` validates:
+`load_input_table()` validates:
 
 - file existence
-- required columns contract
+- required column contract
 - optional slicing by offset/limit
 
 ### 5.2 Selector Strategy
 
-The automation uses selector lists per field and attempts each locator with bounded timeout (`encontrar_elemento`).
+The automation uses selector lists per field and attempts each locator with bounded timeout (`find_element`).
 
 Benefit:
 
@@ -98,7 +102,7 @@ Benefit:
 For each record, the runtime captures baseline evidence:
 
 - table row count in DOM
-- LocalStorage list length
+- localStorage list length
 
 After submit, it confirms success by comparing post-submit signals.
 
@@ -109,16 +113,24 @@ Possible statuses:
 - `nao_confirmado`
 - `erro`
 
+> Status values are intentionally kept in Portuguese for compatibility with existing
+> analytics schema and downstream dashboards.
+
 ### 5.4 Fallback Insertion Strategy
 
-If no clear evidence appears and table did not grow, runtime attempts JS fallback insertion (`inserir_produto_via_fallback_js`) and revalidates record presence.
+If no clear evidence appears and table did not grow, runtime attempts JavaScript fallback insertion (`insert_product_with_js_fallback`) and revalidates record presence.
 
 ### 5.5 Incremental Persistence Strategy
 
 To reduce observability loss on interruption/timeout:
 
-- partial CSV persistence every `RELATORIO_PARCIAL_CADA`
-- partial HTML persistence every `HTML_PARCIAL_CADA`
+- partial CSV persistence every `PARTIAL_REPORT_EVERY`
+- partial HTML persistence every `PARTIAL_HTML_EVERY`
+
+Legacy aliases are still supported:
+
+- `RELATORIO_PARCIAL_CADA`
+- `HTML_PARCIAL_CADA`
 
 ---
 
@@ -152,7 +164,7 @@ To reduce observability loss on interruption/timeout:
 
 ## 7. Data Model
 
-### 7.1 Record-Level Report (`logs/relatorio_cadastro_*.csv`)
+### 7.1 Record-Level Report (`logs/registration_report_*.csv`)
 
 Representative fields:
 
@@ -187,9 +199,13 @@ Representative fields:
 
 ### 8.1 Data Loading Modes
 
-1. **Primary local mode**: load from `logs/relatorio_cadastro_*.csv`
+1. **Primary local mode**: load from `logs/registration_report_*.csv`
 2. **Cloud fallback mode**: load from `analytics/detailed_runs.csv`
 3. **Remote fallback mode**: optional `*_REMOTE_URL`
+
+Legacy local report names are still recognized:
+
+- `logs/relatorio_cadastro_*.csv`
 
 ### 8.2 Analytical Layers
 
@@ -209,7 +225,7 @@ Implemented:
 
 1. multi-selector lookup strategy
 2. multiple submission evidence channels
-3. controlled JS fallback path
+3. controlled JavaScript fallback path
 4. periodic persistence of intermediate outputs
 5. consolidated immutable-like historical datasets
 6. cloud-safe dashboard fallback to analytics data
@@ -226,7 +242,7 @@ Implemented:
 
 ### 10.2 Cloud (GitHub Actions + Streamlit)
 
-- configure secrets for login (mandatory)
+- configure login secrets (mandatory)
 - configure optional SMTP secrets
 - ensure workflow write permissions for analytics commits
 - optionally configure Streamlit secrets for remote CSV fallback

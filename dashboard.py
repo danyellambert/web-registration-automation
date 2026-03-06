@@ -1,9 +1,13 @@
-"""Dashboard Streamlit corporativo para monitoramento da automação.
+"""Corporate Streamlit dashboard for monitoring registration automation.
 
-Camadas de análise:
-1) Executiva (KPIs e tendência)
-2) Operacional (status por dimensão e distribuição)
-3) Qualidade e investigação (falhas, detalhe por registro)
+Analysis layers:
+1) Executive (KPIs and trend)
+2) Operational (status by dimension and distribution)
+3) Quality and investigation (failures and record-level detail)
+
+Important compatibility notes:
+- Data schema fields from automation/history remain in Portuguese where required
+  (e.g., status_execucao, nao_confirmado, falhas_criticas, etc.).
 """
 
 from __future__ import annotations
@@ -19,25 +23,25 @@ import plotly.graph_objects as go
 import streamlit as st
 
 
-def _int_env(nome: str, padrao: int) -> int:
+def _positive_int_env(name: str, default: int) -> int:
     try:
-        valor = int(os.getenv(nome, str(padrao)))
-        return valor if valor > 0 else padrao
+        value = int(os.getenv(name, str(default)))
+        return value if value > 0 else default
     except Exception:
-        return padrao
+        return default
 
 
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 HISTORY_CSV = Path(__file__).resolve().parent / "analytics" / "history_runs.csv"
-DASHBOARD_DETAILED_CSV = Path(__file__).resolve().parent / "analytics" / "detailed_runs.csv"
+DETAILED_DASHBOARD_CSV = Path(__file__).resolve().parent / "analytics" / "detailed_runs.csv"
 HISTORY_REMOTE_URL = os.getenv("HISTORY_REMOTE_URL", "").strip()
 DETAILED_REMOTE_URL = os.getenv("DETAILED_REMOTE_URL", "").strip()
-CACHE_TTL_SECONDS = _int_env("DASHBOARD_CACHE_TTL", 60)
+CACHE_TTL_SECONDS = _positive_int_env("DASHBOARD_CACHE_TTL", 60)
 
-PATTERN_RELATORIO = "relatorio_cadastro_*.csv"
-STATUS_ORDEM = ["ok", "ok_parcial", "nao_confirmado", "erro"]
+REPORT_PATTERNS = ["registration_report_*.csv", "relatorio_cadastro_*.csv"]
+STATUS_ORDER = ["ok", "ok_parcial", "nao_confirmado", "erro"]
 
-COLUNAS_BASE = [
+BASE_COLUMNS = [
     "indice_csv",
     "codigo",
     "marca",
@@ -50,7 +54,7 @@ COLUNAS_BASE = [
     "detalhe",
 ]
 
-COLUNAS_HISTORICO = [
+HISTORY_COLUMNS = [
     "history_updated_at_utc",
     "run_id",
     "run_datetime",
@@ -74,10 +78,10 @@ COLUNAS_HISTORICO = [
 ]
 
 
-def extrair_execucao_do_nome(nome_arquivo: str) -> tuple[str, pd.Timestamp]:
-    match = re.search(r"(\d{8}_\d{6})", nome_arquivo)
+def extract_run_info_from_filename(filename: str) -> tuple[str, pd.Timestamp]:
+    match = re.search(r"(\d{8}_\d{6})", filename)
     if not match:
-        return nome_arquivo, pd.NaT
+        return filename, pd.NaT
 
     run_id = match.group(1)
     try:
@@ -88,140 +92,145 @@ def extrair_execucao_do_nome(nome_arquivo: str) -> tuple[str, pd.Timestamp]:
 
 
 @st.cache_data(show_spinner=False, ttl=CACHE_TTL_SECONDS)
-def carregar_relatorios(log_dir: str) -> pd.DataFrame:
-    diretorio_logs = Path(log_dir)
-    if not diretorio_logs.exists():
+def load_reports(log_dir: str) -> pd.DataFrame:
+    logs_path = Path(log_dir)
+    if not logs_path.exists():
         return pd.DataFrame()
 
-    relatorios = sorted(diretorio_logs.glob(PATTERN_RELATORIO))
-    if not relatorios:
+    report_files: list[Path] = []
+    for pattern in REPORT_PATTERNS:
+        report_files.extend(logs_path.glob(pattern))
+    report_files = sorted(set(report_files))
+    if not report_files:
         return pd.DataFrame()
 
-    consolidado: list[pd.DataFrame] = []
+    merged_frames: list[pd.DataFrame] = []
 
-    for arquivo in relatorios:
+    for file_path in report_files:
         try:
-            df = pd.read_csv(arquivo)
+            df = pd.read_csv(file_path)
         except Exception:
             continue
 
-        for coluna in COLUNAS_BASE:
-            if coluna not in df.columns:
-                df[coluna] = pd.NA
+        for column in BASE_COLUMNS:
+            if column not in df.columns:
+                df[column] = pd.NA
 
-        run_id, run_datetime = extrair_execucao_do_nome(arquivo.name)
-        df["arquivo_origem"] = arquivo.name
+        run_id, run_datetime = extract_run_info_from_filename(file_path.name)
+        df["source_file"] = file_path.name
         df["run_id"] = run_id
         df["run_datetime"] = run_datetime
-        consolidado.append(df)
+        merged_frames.append(df)
 
-    if not consolidado:
+    if not merged_frames:
         return pd.DataFrame()
 
-    dados = pd.concat(consolidado, ignore_index=True)
-    dados["run_datetime"] = pd.to_datetime(dados["run_datetime"], errors="coerce")
-    dados["run_date"] = dados["run_datetime"].dt.date
+    data = pd.concat(merged_frames, ignore_index=True)
+    data["run_datetime"] = pd.to_datetime(data["run_datetime"], errors="coerce")
+    data["run_date"] = data["run_datetime"].dt.date
 
-    for coluna in ["codigo", "marca", "tipo", "categoria", "status_execucao", "detalhe"]:
-        dados[coluna] = dados[coluna].fillna("").astype(str)
+    for column in ["codigo", "marca", "tipo", "categoria", "status_execucao", "detalhe"]:
+        data[column] = data[column].fillna("").astype(str)
 
-    for coluna_num in ["preco_unitario", "custo"]:
-        dados[coluna_num] = pd.to_numeric(dados[coluna_num], errors="coerce").fillna(0.0)
+    for numeric_column in ["preco_unitario", "custo"]:
+        data[numeric_column] = pd.to_numeric(data[numeric_column], errors="coerce").fillna(0.0)
 
-    dados["margem_unitaria"] = dados["preco_unitario"] - dados["custo"]
-    return dados
+    data["margem_unitaria"] = data["preco_unitario"] - data["custo"]
+    return data
 
 
 @st.cache_data(show_spinner=False, ttl=CACHE_TTL_SECONDS)
-def carregar_detalhado_cloud(detailed_csv: str, detailed_remote_url: str = "") -> pd.DataFrame:
-    caminho = Path(detailed_csv)
-    detalhado = pd.DataFrame()
+def load_cloud_detailed_data(detailed_csv: str, detailed_remote_url: str = "") -> pd.DataFrame:
+    detailed_path = Path(detailed_csv)
+    detailed = pd.DataFrame()
 
-    if caminho.exists() and caminho.stat().st_size > 0:
+    if detailed_path.exists() and detailed_path.stat().st_size > 0:
         try:
-            detalhado = pd.read_csv(caminho, encoding="utf-8-sig")
+            detailed = pd.read_csv(detailed_path, encoding="utf-8-sig")
         except Exception:
-            detalhado = pd.DataFrame()
+            detailed = pd.DataFrame()
 
-    if detalhado.empty and detailed_remote_url:
+    if detailed.empty and detailed_remote_url:
         try:
-            detalhado = pd.read_csv(detailed_remote_url)
+            detailed = pd.read_csv(detailed_remote_url)
         except Exception:
-            detalhado = pd.DataFrame()
+            detailed = pd.DataFrame()
 
-    if detalhado.empty:
+    if detailed.empty:
         return pd.DataFrame()
 
-    for coluna in COLUNAS_BASE:
-        if coluna not in detalhado.columns:
-            detalhado[coluna] = pd.NA
+    for column in BASE_COLUMNS:
+        if column not in detailed.columns:
+            detailed[column] = pd.NA
 
-    if "arquivo_origem" not in detalhado.columns:
-        if "report_file" in detalhado.columns:
-            detalhado["arquivo_origem"] = detalhado["report_file"].fillna("").astype(str)
+    if "source_file" not in detailed.columns:
+        if "report_file" in detailed.columns:
+            detailed["source_file"] = detailed["report_file"].fillna("").astype(str)
         else:
-            detalhado["arquivo_origem"] = "analytics/detailed_runs.csv"
+            detailed["source_file"] = "analytics/detailed_runs.csv"
 
-    if "run_id" not in detalhado.columns:
-        detalhado["run_id"] = "desconhecido"
+    if "run_id" not in detailed.columns:
+        detailed["run_id"] = "unknown"
 
-    if "run_datetime" not in detalhado.columns:
-        if "report_file" in detalhado.columns:
-            detalhado["run_datetime"] = detalhado["report_file"].apply(
-                lambda nome: extrair_execucao_do_nome(str(nome))[1]
+    if "run_datetime" not in detailed.columns:
+        if "report_file" in detailed.columns:
+            detailed["run_datetime"] = detailed["report_file"].apply(
+                lambda name: extract_run_info_from_filename(str(name))[1]
             )
         else:
-            detalhado["run_datetime"] = pd.NaT
+            detailed["run_datetime"] = pd.NaT
 
-    detalhado["run_datetime"] = pd.to_datetime(detalhado["run_datetime"], errors="coerce")
-    detalhado["run_date"] = detalhado["run_datetime"].dt.date
+    detailed["run_datetime"] = pd.to_datetime(detailed["run_datetime"], errors="coerce")
+    detailed["run_date"] = detailed["run_datetime"].dt.date
 
-    for coluna in [
+    for column in [
         "codigo",
         "marca",
         "tipo",
         "categoria",
         "status_execucao",
         "detalhe",
-        "arquivo_origem",
+        "source_file",
     ]:
-        detalhado[coluna] = detalhado[coluna].fillna("").astype(str)
+        detailed[column] = detailed[column].fillna("").astype(str)
 
-    for coluna_num in ["preco_unitario", "custo"]:
-        detalhado[coluna_num] = pd.to_numeric(detalhado[coluna_num], errors="coerce").fillna(0.0)
+    for numeric_column in ["preco_unitario", "custo"]:
+        detailed[numeric_column] = pd.to_numeric(
+            detailed[numeric_column], errors="coerce"
+        ).fillna(0.0)
 
-    detalhado["margem_unitaria"] = detalhado["preco_unitario"] - detalhado["custo"]
-    return detalhado
+    detailed["margem_unitaria"] = detailed["preco_unitario"] - detailed["custo"]
+    return detailed
 
 
 @st.cache_data(show_spinner=False, ttl=CACHE_TTL_SECONDS)
-def carregar_historico(history_csv: str, history_remote_url: str = "") -> pd.DataFrame:
-    caminho = Path(history_csv)
-    historico = pd.DataFrame()
+def load_history(history_csv: str, history_remote_url: str = "") -> pd.DataFrame:
+    history_path = Path(history_csv)
+    history = pd.DataFrame()
 
-    if caminho.exists() and caminho.stat().st_size > 0:
+    if history_path.exists() and history_path.stat().st_size > 0:
         try:
-            historico = pd.read_csv(caminho, encoding="utf-8-sig")
+            history = pd.read_csv(history_path, encoding="utf-8-sig")
         except Exception:
-            historico = pd.DataFrame()
+            history = pd.DataFrame()
 
-    if historico.empty and history_remote_url:
+    if history.empty and history_remote_url:
         try:
-            historico = pd.read_csv(history_remote_url)
+            history = pd.read_csv(history_remote_url)
         except Exception:
-            historico = pd.DataFrame()
+            history = pd.DataFrame()
 
-    if historico.empty:
+    if history.empty:
         return pd.DataFrame()
 
-    for coluna in COLUNAS_HISTORICO:
-        if coluna not in historico.columns:
-            historico[coluna] = pd.NA
+    for column in HISTORY_COLUMNS:
+        if column not in history.columns:
+            history[column] = pd.NA
 
-    historico["run_datetime"] = pd.to_datetime(historico["run_datetime"], errors="coerce")
-    historico["run_date"] = historico["run_datetime"].dt.date
+    history["run_datetime"] = pd.to_datetime(history["run_datetime"], errors="coerce")
+    history["run_date"] = history["run_datetime"].dt.date
 
-    for coluna in [
+    for column in [
         "total",
         "ok",
         "ok_parcial",
@@ -231,60 +240,60 @@ def carregar_historico(history_csv: str, history_remote_url: str = "") -> pd.Dat
         "falhas_criticas",
         "success_rate",
     ]:
-        historico[coluna] = pd.to_numeric(historico[coluna], errors="coerce").fillna(0)
+        history[column] = pd.to_numeric(history[column], errors="coerce").fillna(0)
 
-    for coluna in ["run_id", "run_url", "event_name", "actor", "github_run_id"]:
-        historico[coluna] = historico[coluna].fillna("").astype(str)
+    for column in ["run_id", "run_url", "event_name", "actor", "github_run_id"]:
+        history[column] = history[column].fillna("").astype(str)
 
-    return historico
+    return history
 
 
-def normalizar_periodo(
-    periodo: tuple[date, date] | list[date] | date,
+def normalize_date_range(
+    period: tuple[date, date] | list[date] | date,
     min_date: date,
     max_date: date,
 ) -> tuple[date, date]:
-    if isinstance(periodo, tuple):
-        if len(periodo) == 2:
-            return periodo[0], periodo[1]
-        if len(periodo) == 1:
-            return periodo[0], periodo[0]
-    if isinstance(periodo, list):
-        if len(periodo) == 2:
-            return periodo[0], periodo[1]
-        if len(periodo) == 1:
-            return periodo[0], periodo[0]
-    if isinstance(periodo, date):
-        return periodo, periodo
+    if isinstance(period, tuple):
+        if len(period) == 2:
+            return period[0], period[1]
+        if len(period) == 1:
+            return period[0], period[0]
+    if isinstance(period, list):
+        if len(period) == 2:
+            return period[0], period[1]
+        if len(period) == 1:
+            return period[0], period[0]
+    if isinstance(period, date):
+        return period, period
     return min_date, max_date
 
 
-def _formatar_num(valor: float | int) -> str:
-    return f"{valor:,.0f}".replace(",", ".")
+def format_whole_number(value: float | int) -> str:
+    return f"{value:,.0f}".replace(",", ".")
 
 
-def _criar_gauge(valor: float, alvo: float) -> go.Figure:
+def build_sla_gauge(success_rate: float, target: float) -> go.Figure:
     fig = go.Figure(
         go.Indicator(
             mode="gauge+number+delta",
-            value=float(valor),
+            value=float(success_rate),
             number={"suffix": "%"},
-            delta={"reference": float(alvo), "relative": False},
+            delta={"reference": float(target), "relative": False},
             gauge={
                 "axis": {"range": [0, 100]},
-                "bar": {"color": "#00A36C" if valor >= alvo else "#FF4B4B"},
+                "bar": {"color": "#00A36C" if success_rate >= target else "#FF4B4B"},
                 "steps": [
                     {"range": [0, 85], "color": "#ffe5e5"},
-                    {"range": [85, alvo], "color": "#fff5cc"},
-                    {"range": [alvo, 100], "color": "#e6f7ef"},
+                    {"range": [85, target], "color": "#fff5cc"},
+                    {"range": [target, 100], "color": "#e6f7ef"},
                 ],
                 "threshold": {
                     "line": {"color": "#222", "width": 2},
                     "thickness": 0.75,
-                    "value": float(alvo),
+                    "value": float(target),
                 },
             },
-            title={"text": "SLA de sucesso"},
+            title={"text": "Success SLA"},
         )
     )
     fig.update_layout(height=260, margin=dict(l=20, r=20, t=60, b=20))
@@ -299,55 +308,64 @@ def main() -> None:
     )
 
     st.title("📈 Registration Automation — Executive Control Tower")
-    st.caption(
-        "Monitoramento executivo, operacional e de qualidade da automação de cadastro."
-    )
+    st.caption("Executive, operational, and quality monitoring for registration automation.")
 
     if "auto_refresh" not in st.session_state:
         st.session_state.auto_refresh = False
 
-    dados_origem = "logs"
-    dados = carregar_relatorios(str(LOG_DIR))
-    if dados.empty:
-        dados = carregar_detalhado_cloud(str(DASHBOARD_DETAILED_CSV), DETAILED_REMOTE_URL)
-        if not dados.empty:
-            dados_origem = "analytics"
-    historico = carregar_historico(str(HISTORY_CSV), HISTORY_REMOTE_URL)
+    data_source = "logs"
+    data = load_reports(str(LOG_DIR))
+    loaded_legacy_report_name = False
+    if not data.empty:
+        loaded_legacy_report_name = data["source_file"].str.contains(
+            r"^relatorio_cadastro_", regex=True, na=False
+        ).any()
 
-    if dados.empty and historico.empty:
+    if data.empty:
+        data = load_cloud_detailed_data(str(DETAILED_DASHBOARD_CSV), DETAILED_REMOTE_URL)
+        if not data.empty:
+            data_source = "analytics"
+    history = load_history(str(HISTORY_CSV), HISTORY_REMOTE_URL)
+
+    if data.empty and history.empty:
         st.info(
-            "Sem dados disponíveis. Rode a automação para gerar `logs/` e `analytics/history_runs.csv`."
+            "No data available. Run automation first to generate `logs/` and `analytics/history_runs.csv`."
         )
         return
 
-    if dados_origem == "analytics":
+    if data_source == "analytics":
         st.info(
-            "Base detalhada carregada do histórico consolidado em `analytics/detailed_runs.csv` "
-            "(modo cloud, sem `logs/` locais)."
+            "Detailed data loaded from consolidated history in `analytics/detailed_runs.csv` "
+            "(cloud mode without local `logs/`)."
+        )
+    elif loaded_legacy_report_name:
+        st.info(
+            "Legacy local report names (`relatorio_cadastro_*.csv`) were detected and loaded. "
+            "Current executions generate `registration_report_*.csv`."
         )
 
-    datas_partes = []
-    if not dados.empty:
-        datas_partes.append(dados["run_date"].dropna())
-    if not historico.empty:
-        datas_partes.append(historico["run_date"].dropna())
+    date_chunks = []
+    if not data.empty:
+        date_chunks.append(data["run_date"].dropna())
+    if not history.empty:
+        date_chunks.append(history["run_date"].dropna())
 
-    datas_validas = pd.concat(datas_partes) if datas_partes else pd.Series(dtype="object")
-    if datas_validas.empty:
+    valid_dates = pd.concat(date_chunks) if date_chunks else pd.Series(dtype="object")
+    if valid_dates.empty:
         min_date = max_date = date.today()
     else:
-        min_date = datas_validas.min()
-        max_date = datas_validas.max()
+        min_date = valid_dates.min()
+        max_date = valid_dates.max()
 
-    marcas_disponiveis = sorted(m for m in (dados["marca"].unique() if not dados.empty else []) if m)
-    eventos_disponiveis = sorted(
-        e for e in (historico["event_name"].unique() if not historico.empty else []) if e
+    available_brands = sorted(brand for brand in (data["marca"].unique() if not data.empty else []) if brand)
+    available_events = sorted(
+        event for event in (history["event_name"].unique() if not history.empty else []) if event
     )
 
     with st.sidebar:
-        st.header("Atualização")
-        st.caption(f"TTL cache: ~{CACHE_TTL_SECONDS}s")
-        if st.button("🔄 Atualizar agora", use_container_width=True):
+        st.header("Refresh")
+        st.caption(f"Cache TTL: ~{CACHE_TTL_SECONDS}s")
+        if st.button("🔄 Refresh now", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
 
@@ -357,17 +375,19 @@ def main() -> None:
         )
 
         st.divider()
-        st.header("Filtros globais")
-        periodo = st.date_input(
-            "Período",
+        st.header("Global filters")
+        period = st.date_input(
+            "Period",
             value=(min_date, max_date),
             min_value=min_date,
             max_value=max_date,
         )
-        busca = st.text_input("Buscar código/marca", value="").strip()
-        marcas = st.multiselect("Marcas", options=marcas_disponiveis, default=[])
-        eventos = st.multiselect("Tipo de evento (history)", options=eventos_disponiveis, default=[])
-        alvo_sla = st.slider("Meta de sucesso (%)", min_value=80, max_value=100, value=97)
+        search_term = st.text_input("Search by code/brand", value="").strip()
+        selected_brands = st.multiselect("Brands", options=available_brands, default=[])
+        selected_events = st.multiselect(
+            "Event type (history)", options=available_events, default=[]
+        )
+        sla_target = st.slider("Success target (%)", min_value=80, max_value=100, value=97)
 
     if st.session_state.auto_refresh:
         refresh_ms = CACHE_TTL_SECONDS * 1000
@@ -382,191 +402,199 @@ def main() -> None:
             unsafe_allow_html=True,
         )
 
-    inicio, fim = normalizar_periodo(periodo, min_date, max_date)
+    start_date, end_date = normalize_date_range(period, min_date, max_date)
 
-    detalhado = pd.DataFrame()
-    if not dados.empty:
-        detalhado = dados[(dados["run_date"] >= inicio) & (dados["run_date"] <= fim)].copy()
-        if marcas:
-            detalhado = detalhado[detalhado["marca"].isin(marcas)]
-        if busca:
-            mask = detalhado["codigo"].str.contains(busca, case=False, na=False) | detalhado[
+    detailed = pd.DataFrame()
+    if not data.empty:
+        detailed = data[(data["run_date"] >= start_date) & (data["run_date"] <= end_date)].copy()
+        if selected_brands:
+            detailed = detailed[detailed["marca"].isin(selected_brands)]
+        if search_term:
+            mask = detailed["codigo"].str.contains(search_term, case=False, na=False) | detailed[
                 "marca"
-            ].str.contains(busca, case=False, na=False)
-            detalhado = detalhado[mask]
+            ].str.contains(search_term, case=False, na=False)
+            detailed = detailed[mask]
 
-    hist = pd.DataFrame()
-    if not historico.empty:
-        hist = historico[(historico["run_date"] >= inicio) & (historico["run_date"] <= fim)].copy()
-        if eventos:
-            hist = hist[hist["event_name"].isin(eventos)]
+    filtered_history = pd.DataFrame()
+    if not history.empty:
+        filtered_history = history[
+            (history["run_date"] >= start_date) & (history["run_date"] <= end_date)
+        ].copy()
+        if selected_events:
+            filtered_history = filtered_history[filtered_history["event_name"].isin(selected_events)]
 
-    if detalhado.empty and hist.empty:
-        st.warning("Sem dados para os filtros selecionados.")
+    if detailed.empty and filtered_history.empty:
+        st.warning("No data for the selected filters.")
         return
 
     # -----------------------------
-    # KPIs executivos
+    # Executive KPIs
     # -----------------------------
-    if not hist.empty:
-        total_execucoes = int(hist["run_id"].nunique())
-        total_registros = int(hist["total"].sum())
-        total_ok = int(hist["ok"].sum())
-        falhas_criticas = int(hist["falhas_criticas"].sum())
-        taxa_sucesso = (total_ok / total_registros * 100) if total_registros else 0.0
-        ultima_exec = hist["run_datetime"].max()
+    if not filtered_history.empty:
+        total_runs = int(filtered_history["run_id"].nunique())
+        total_records = int(filtered_history["total"].sum())
+        total_ok = int(filtered_history["ok"].sum())
+        critical_failures = int(filtered_history["falhas_criticas"].sum())
+        success_rate = (total_ok / total_records * 100) if total_records else 0.0
+        latest_run = filtered_history["run_datetime"].max()
     else:
-        total_execucoes = int(detalhado["run_id"].nunique()) if not detalhado.empty else 0
-        total_registros = int(len(detalhado))
-        total_ok = int((detalhado["status_execucao"] == "ok").sum()) if not detalhado.empty else 0
-        falhas_criticas = (
-            int(detalhado["status_execucao"].isin(["erro", "nao_confirmado"]).sum())
-            if not detalhado.empty
+        total_runs = int(detailed["run_id"].nunique()) if not detailed.empty else 0
+        total_records = int(len(detailed))
+        total_ok = int((detailed["status_execucao"] == "ok").sum()) if not detailed.empty else 0
+        critical_failures = (
+            int(detailed["status_execucao"].isin(["erro", "nao_confirmado"]).sum())
+            if not detailed.empty
             else 0
         )
-        taxa_sucesso = (total_ok / total_registros * 100) if total_registros else 0.0
-        ultima_exec = detalhado["run_datetime"].max() if not detalhado.empty else pd.NaT
+        success_rate = (total_ok / total_records * 100) if total_records else 0.0
+        latest_run = detailed["run_datetime"].max() if not detailed.empty else pd.NaT
 
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Execuções", _formatar_num(total_execucoes))
-    col2.metric("Registros", _formatar_num(total_registros))
-    col3.metric("Sucesso", f"{taxa_sucesso:.2f}%")
-    col4.metric("Falhas críticas", _formatar_num(falhas_criticas))
-    col5.metric("Última execução", "-" if pd.isna(ultima_exec) else str(ultima_exec)[:16])
+    col1.metric("Runs", format_whole_number(total_runs))
+    col2.metric("Records", format_whole_number(total_records))
+    col3.metric("Success", f"{success_rate:.2f}%")
+    col4.metric("Critical failures", format_whole_number(critical_failures))
+    col5.metric("Latest run", "-" if pd.isna(latest_run) else str(latest_run)[:16])
 
-    st.plotly_chart(_criar_gauge(taxa_sucesso, alvo_sla), use_container_width=True)
+    st.plotly_chart(build_sla_gauge(success_rate, sla_target), use_container_width=True)
 
     # -----------------------------
-    # Linha 1 - tendências e composição
+    # Row 1 - trends and composition
     # -----------------------------
-    if not hist.empty:
-        base_tendencia = hist.sort_values("run_datetime").copy()
-        base_tendencia["taxa_sucesso"] = pd.to_numeric(
-            base_tendencia["success_rate"], errors="coerce"
+    if not filtered_history.empty:
+        trend_base = filtered_history.sort_values("run_datetime").copy()
+        trend_base["success_rate_calc"] = pd.to_numeric(
+            trend_base["success_rate"], errors="coerce"
         ).fillna(0)
-        base_tendencia["falhas"] = pd.to_numeric(base_tendencia["falhas_criticas"], errors="coerce").fillna(0)
+        trend_base["failures"] = pd.to_numeric(
+            trend_base["falhas_criticas"], errors="coerce"
+        ).fillna(0)
     else:
-        base_tendencia = (
-            detalhado.groupby(["run_id", "run_datetime"], dropna=False)
+        trend_base = (
+            detailed.groupby(["run_id", "run_datetime"], dropna=False)
             .agg(
                 total=("status_execucao", "size"),
-                ok=("status_execucao", lambda s: int((s == "ok").sum())),
-                falhas=(
+                ok=("status_execucao", lambda values: int((values == "ok").sum())),
+                failures=(
                     "status_execucao",
-                    lambda s: int(s.isin(["erro", "nao_confirmado"]).sum()),
+                    lambda values: int(values.isin(["erro", "nao_confirmado"]).sum()),
                 ),
             )
             .reset_index()
             .sort_values("run_datetime")
         )
-        base_tendencia["taxa_sucesso"] = (
-            base_tendencia["ok"] / base_tendencia["total"] * 100
+        trend_base["success_rate_calc"] = (
+            trend_base["ok"] / trend_base["total"] * 100
         ).fillna(0)
 
-    if not detalhado.empty:
+    if not detailed.empty:
         status_counts = (
-            detalhado.groupby("status_execucao", dropna=False)
+            detailed.groupby("status_execucao", dropna=False)
             .size()
-            .reset_index(name="quantidade")
-            .sort_values("quantidade", ascending=False)
+            .reset_index(name="count")
+            .sort_values("count", ascending=False)
         )
-    elif not hist.empty:
+    elif not filtered_history.empty:
         status_counts = pd.DataFrame(
             {
                 "status_execucao": ["ok", "ok_parcial", "nao_confirmado", "erro"],
-                "quantidade": [
-                    int(hist["ok"].sum()),
-                    int(hist["ok_parcial"].sum()),
-                    int(hist["nao_confirmado"].sum()),
-                    int(hist["erro"].sum()),
+                "count": [
+                    int(filtered_history["ok"].sum()),
+                    int(filtered_history["ok_parcial"].sum()),
+                    int(filtered_history["nao_confirmado"].sum()),
+                    int(filtered_history["erro"].sum()),
                 ],
             }
         )
-        status_counts = status_counts[status_counts["quantidade"] > 0]
+        status_counts = status_counts[status_counts["count"] > 0]
     else:
-        status_counts = pd.DataFrame(columns=["status_execucao", "quantidade"])
+        status_counts = pd.DataFrame(columns=["status_execucao", "count"])
 
-    fig_tendencia = px.line(
-        base_tendencia,
+    if not status_counts.empty:
+        status_counts["status_execucao"] = pd.Categorical(
+            status_counts["status_execucao"], categories=STATUS_ORDER, ordered=True
+        )
+        status_counts = status_counts.sort_values("status_execucao")
+
+    trend_fig = px.line(
+        trend_base,
         x="run_datetime",
-        y="taxa_sucesso",
+        y="success_rate_calc",
         markers=True,
-        hover_data={"run_id": True, "total": True, "ok": True, "falhas": True},
-        title="Tendência de sucesso por execução",
+        hover_data={"run_id": True, "total": True, "ok": True, "failures": True},
+        title="Success trend by run",
     )
-    fig_tendencia.update_layout(yaxis_title="Sucesso (%)", xaxis_title="Execução", yaxis_range=[0, 100])
+    trend_fig.update_layout(yaxis_title="Success (%)", xaxis_title="Run", yaxis_range=[0, 100])
 
-    fig_status = px.pie(
+    status_fig = px.pie(
         status_counts,
         names="status_execucao",
-        values="quantidade",
-        title="Composição de status",
+        values="count",
+        title="Status composition",
         hole=0.5,
     )
 
-    l1, l2 = st.columns((2, 1))
-    l1.plotly_chart(fig_tendencia, use_container_width=True)
-    l2.plotly_chart(fig_status, use_container_width=True)
+    row1_col1, row1_col2 = st.columns((2, 1))
+    row1_col1.plotly_chart(trend_fig, use_container_width=True)
+    row1_col2.plotly_chart(status_fig, use_container_width=True)
 
     # -----------------------------
-    # Linha 2 - eficiência por dimensão
+    # Row 2 - efficiency by dimension
     # -----------------------------
-    if not detalhado.empty:
-        por_marca = (
-            detalhado.groupby("marca", dropna=False)
+    if not detailed.empty:
+        by_brand = (
+            detailed.groupby("marca", dropna=False)
             .agg(
                 total=("status_execucao", "size"),
-                ok=("status_execucao", lambda s: int((s == "ok").sum())),
-                falhas=(
+                ok=("status_execucao", lambda values: int((values == "ok").sum())),
+                failures=(
                     "status_execucao",
-                    lambda s: int(s.isin(["erro", "nao_confirmado"]).sum()),
+                    lambda values: int(values.isin(["erro", "nao_confirmado"]).sum()),
                 ),
-                margem_media=("margem_unitaria", "mean"),
+                average_margin=("margem_unitaria", "mean"),
             )
             .reset_index()
         )
-        por_marca["taxa_sucesso"] = (por_marca["ok"] / por_marca["total"] * 100).fillna(0)
-        por_marca = por_marca.sort_values("total", ascending=False).head(12)
+        by_brand["success_rate"] = (by_brand["ok"] / by_brand["total"] * 100).fillna(0)
+        by_brand = by_brand.sort_values("total", ascending=False).head(12)
 
-        fig_marca = px.bar(
-            por_marca,
+        brand_fig = px.bar(
+            by_brand,
             x="marca",
-            y="taxa_sucesso",
+            y="success_rate",
             color="total",
             text_auto=".1f",
-            title="Eficiência por marca (Top 12 por volume)",
+            title="Efficiency by brand (Top 12 by volume)",
         )
-        fig_marca.update_layout(yaxis_title="Sucesso (%)", xaxis_title="Marca")
+        brand_fig.update_layout(yaxis_title="Success (%)", xaxis_title="Brand")
 
-        heat = (
-            detalhado.assign(
-                status_padrao=detalhado["status_execucao"].replace("", "sem_status")
-            )
-            .groupby(["categoria", "status_padrao"], dropna=False)
+        heat_data = (
+            detailed.assign(status_fallback=detailed["status_execucao"].replace("", "no_status"))
+            .groupby(["categoria", "status_fallback"], dropna=False)
             .size()
-            .reset_index(name="quantidade")
+            .reset_index(name="count")
         )
-        fig_heat = px.density_heatmap(
-            heat,
-            x="status_padrao",
+        heatmap_fig = px.density_heatmap(
+            heat_data,
+            x="status_fallback",
             y="categoria",
-            z="quantidade",
+            z="count",
             color_continuous_scale="Blues",
-            title="Mapa de calor categoria x status",
+            title="Heatmap category x status",
         )
 
-        m1, m2 = st.columns(2)
-        m1.plotly_chart(fig_marca, use_container_width=True)
-        m2.plotly_chart(fig_heat, use_container_width=True)
+        row2_col1, row2_col2 = st.columns(2)
+        row2_col1.plotly_chart(brand_fig, use_container_width=True)
+        row2_col2.plotly_chart(heatmap_fig, use_container_width=True)
 
     # -----------------------------
-    # Tabelas de gestão
+    # Management tables
     # -----------------------------
-    st.subheader("🧾 Histórico consolidado de execuções")
-    if hist.empty:
-        st.info("Sem histórico consolidado para os filtros atuais.")
+    st.subheader("🧾 Consolidated run history")
+    if filtered_history.empty:
+        st.info("No consolidated history for current filters.")
     else:
-        hist_view = hist[
+        history_view = filtered_history[
             [
                 "run_datetime",
                 "run_id",
@@ -582,14 +610,14 @@ def main() -> None:
                 "run_url",
             ]
         ].sort_values("run_datetime", ascending=False)
-        st.dataframe(hist_view, use_container_width=True, hide_index=True)
+        st.dataframe(history_view, use_container_width=True, hide_index=True)
 
-    st.subheader("🚨 Fila de investigação de falhas")
-    if detalhado.empty:
-        st.info("Sem base detalhada local para investigação neste filtro.")
+    st.subheader("🚨 Failure investigation queue")
+    if detailed.empty:
+        st.info("No local detailed base available for investigation under current filters.")
     else:
-        falhas = (
-            detalhado[detalhado["status_execucao"].isin(["erro", "nao_confirmado", "ok_parcial"])][
+        failures = (
+            detailed[detailed["status_execucao"].isin(["erro", "nao_confirmado", "ok_parcial"])][
                 [
                     "run_datetime",
                     "run_id",
@@ -600,31 +628,31 @@ def main() -> None:
                     "categoria",
                     "status_execucao",
                     "detalhe",
-                    "arquivo_origem",
+                    "source_file",
                 ]
             ]
             .sort_values(["run_datetime", "indice_csv"], ascending=[False, True])
             .reset_index(drop=True)
         )
-        if falhas.empty:
-            st.success("Nenhuma falha crítica/parcial encontrada para os filtros selecionados.")
+        if failures.empty:
+            st.success("No critical/partial failures found for selected filters.")
         else:
-            st.dataframe(falhas, use_container_width=True, hide_index=True)
+            st.dataframe(failures, use_container_width=True, hide_index=True)
 
-    st.subheader("📦 Base detalhada filtrada")
-    if detalhado.empty:
-        st.info("Sem registros detalhados para os filtros atuais.")
+    st.subheader("📦 Filtered detailed dataset")
+    if detailed.empty:
+        st.info("No detailed records for current filters.")
     else:
-        detalhado_view = detalhado.sort_values(
+        detailed_view = detailed.sort_values(
             ["run_datetime", "indice_csv"], ascending=[False, True]
         ).reset_index(drop=True)
-        st.dataframe(detalhado_view, use_container_width=True, hide_index=True)
+        st.dataframe(detailed_view, use_container_width=True, hide_index=True)
 
-        nome_csv = f"dashboard_detalhado_{datetime.now():%Y%m%d_%H%M%S}.csv"
+        csv_filename = f"dashboard_detailed_{datetime.now():%Y%m%d_%H%M%S}.csv"
         st.download_button(
-            label="⬇️ Baixar dataset detalhado filtrado",
-            data=detalhado_view.to_csv(index=False, encoding="utf-8-sig"),
-            file_name=nome_csv,
+            label="⬇️ Download filtered detailed dataset",
+            data=detailed_view.to_csv(index=False, encoding="utf-8-sig"),
+            file_name=csv_filename,
             mime="text/csv",
             use_container_width=True,
         )

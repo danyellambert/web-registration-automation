@@ -1,6 +1,11 @@
-"""Atualiza base detalhada consolidada para uso no dashboard cloud.
+"""Update consolidated detailed dataset for cloud dashboard usage.
 
-Lê o relatório CSV da execução atual e faz upsert em `analytics/detailed_runs.csv`.
+Reads the current run CSV report and upserts records into
+`analytics/detailed_runs.csv`.
+
+Compatibility notes:
+- Keeps detailed schema field names unchanged where required
+  (e.g., `indice_csv`, `status_execucao`, `detalhe`).
 """
 
 from __future__ import annotations
@@ -13,7 +18,7 @@ from pathlib import Path
 import pandas as pd
 
 
-COLUNAS_BASE = [
+BASE_COLUMNS = [
     "indice_csv",
     "codigo",
     "marca",
@@ -27,14 +32,14 @@ COLUNAS_BASE = [
 ]
 
 
-def extrair_run_id(report_file: str) -> str:
+def extract_run_id(report_file: str) -> str:
     match = re.search(r"(\d{8}_\d{6})", report_file or "")
-    return match.group(1) if match else "desconhecido"
+    return match.group(1) if match else "unknown"
 
 
-def extrair_run_datetime(report_file: str) -> str:
-    run_id = extrair_run_id(report_file)
-    if run_id != "desconhecido":
+def extract_run_datetime(report_file: str) -> str:
+    run_id = extract_run_id(report_file)
+    if run_id != "unknown":
         try:
             dt = pd.to_datetime(run_id, format="%Y%m%d_%H%M%S")
             return dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -43,25 +48,25 @@ def extrair_run_datetime(report_file: str) -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def carregar_relatorio(report_csv: Path) -> pd.DataFrame:
+def load_report(report_csv: Path) -> pd.DataFrame:
     if not report_csv.exists() or report_csv.stat().st_size == 0:
-        return pd.DataFrame(columns=COLUNAS_BASE)
+        return pd.DataFrame(columns=BASE_COLUMNS)
 
     try:
         df = pd.read_csv(report_csv, encoding="utf-8-sig")
     except Exception:
-        return pd.DataFrame(columns=COLUNAS_BASE)
+        return pd.DataFrame(columns=BASE_COLUMNS)
 
-    for coluna in COLUNAS_BASE:
-        if coluna not in df.columns:
-            df[coluna] = pd.NA
+    for column in BASE_COLUMNS:
+        if column not in df.columns:
+            df[column] = pd.NA
 
-    return df[COLUNAS_BASE].copy()
+    return df[BASE_COLUMNS].copy()
 
 
-def upsert_detalhado(
+def upsert_detailed(
     detailed_csv: Path,
-    relatorio_df: pd.DataFrame,
+    report_df: pd.DataFrame,
     run_id: str,
     run_datetime: str,
     report_file: str,
@@ -85,21 +90,21 @@ def upsert_detalhado(
         if "run_id" in base.columns:
             base = base[base["run_id"] != str(run_id)]
 
-    if relatorio_df.empty:
+    if report_df.empty:
         base.to_csv(detailed_csv, index=False, encoding="utf-8-sig")
         return False
 
-    novo = relatorio_df.copy()
-    novo["run_id"] = str(run_id)
-    novo["run_datetime"] = str(run_datetime)
-    novo["report_file"] = str(report_file)
-    novo["github_run_id"] = str(github_run_id or "")
-    novo["history_updated_at_utc"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    new_data = report_df.copy()
+    new_data["run_id"] = str(run_id)
+    new_data["run_datetime"] = str(run_datetime)
+    new_data["report_file"] = str(report_file)
+    new_data["github_run_id"] = str(github_run_id or "")
+    new_data["history_updated_at_utc"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    resultado = pd.concat([base, novo], ignore_index=True)
-    resultado["run_datetime"] = pd.to_datetime(resultado["run_datetime"], errors="coerce")
-    resultado = resultado.sort_values(["run_datetime", "indice_csv"], ascending=[True, True])
-    resultado.to_csv(detailed_csv, index=False, encoding="utf-8-sig")
+    result = pd.concat([base, new_data], ignore_index=True)
+    result["run_datetime"] = pd.to_datetime(result["run_datetime"], errors="coerce")
+    result = result.sort_values(["run_datetime", "indice_csv"], ascending=[True, True])
+    result.to_csv(detailed_csv, index=False, encoding="utf-8-sig")
     return True
 
 
@@ -114,22 +119,22 @@ def main() -> int:
     detailed_csv = Path(args.detailed_csv)
 
     report_file = report_csv.name
-    run_id = extrair_run_id(report_file)
-    run_datetime = extrair_run_datetime(report_file)
-    relatorio_df = carregar_relatorio(report_csv)
+    run_id = extract_run_id(report_file)
+    run_datetime = extract_run_datetime(report_file)
+    report_df = load_report(report_csv)
 
-    alterou = upsert_detalhado(
+    changed = upsert_detailed(
         detailed_csv=detailed_csv,
-        relatorio_df=relatorio_df,
+        report_df=report_df,
         run_id=run_id,
         run_datetime=run_datetime,
         report_file=report_file,
         github_run_id=args.github_run_id,
     )
 
-    print(f"Detalhado atualizado em: {detailed_csv}")
-    print(f"Registros da execução: {len(relatorio_df)}")
-    print(f"Alterou arquivo: {'sim' if alterou else 'não'}")
+    print(f"Detailed history updated at: {detailed_csv}")
+    print(f"Run records processed: {len(report_df)}")
+    print(f"File changed: {'yes' if changed else 'no'}")
     return 0
 
 

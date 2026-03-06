@@ -3,36 +3,36 @@ name: Registration Web (Cloud)
 on:
   workflow_dispatch:
     inputs:
-      limite_registros:
-        description: "Quantidade máxima de registros (0 = sem limite)"
+      max_records:
+        description: "Maximum number of records (0 = no limit)"
         required: false
         default: "0"
-      offset_registros:
-        description: "Pular os N primeiros registros"
+      record_offset:
+        description: "Skip the first N records"
         required: false
         default: "0"
-      tempo_confirmacao_envio:
-        description: "Tempo máximo para confirmar envio (segundos)"
+      submission_confirmation_timeout:
+        description: "Maximum submit confirmation wait time (seconds)"
         required: false
         default: "6"
-      tempo_max_espera_sem_evidencia:
-        description: "Tempo máximo sem evidência antes de fallback (segundos)"
+      max_wait_without_evidence:
+        description: "Maximum wait time without evidence before fallback (seconds)"
         required: false
         default: "2.5"
-      relatorio_parcial_cada:
-        description: "Persistir relatório parcial a cada N registros"
+      partial_report_every:
+        description: "Persist partial report every N records"
         required: false
         default: "10"
-      html_parcial_cada:
-        description: "Persistir HTML parcial a cada N registros"
+      partial_html_every:
+        description: "Persist partial HTML every N records"
         required: false
         default: "25"
-      salvar_html_final:
-        description: "Salvar HTML final (1/0)"
+      save_final_html:
+        description: "Save final HTML (1/0)"
         required: false
         default: "1"
-      salvar_pdf_final:
-        description: "Salvar PDF final (1/0)"
+      save_final_pdf:
+        description: "Save final PDF (1/0)"
         required: false
         default: "0"
   schedule:
@@ -43,7 +43,7 @@ permissions:
 
 jobs:
   run-registration:
-    # Cron opcional: habilite com Repository Variable ENABLE_REGISTRATION_SCHEDULE=true
+    # Optional cron: enable with Repository Variable ENABLE_REGISTRATION_SCHEDULE=true
     if: ${{ github.event_name != 'schedule' || vars.ENABLE_REGISTRATION_SCHEDULE == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -72,18 +72,18 @@ jobs:
       - name: Run automation
         env:
           LOGIN_EMAIL: ${{ secrets.LOGIN_EMAIL }}
-          LOGIN_SENHA: ${{ secrets.LOGIN_SENHA }}
+          LOGIN_PASSWORD: ${{ secrets.LOGIN_PASSWORD || secrets.LOGIN_SENHA }}
           HEADLESS: "1"
           KEEP_OPEN: "0"
-          GERAR_RELATORIO: "1"
-          SALVAR_PDF_FINAL: ${{ github.event_name == 'workflow_dispatch' && inputs.salvar_pdf_final || '0' }}
-          SALVAR_HTML_FINAL: ${{ github.event_name == 'workflow_dispatch' && inputs.salvar_html_final || '1' }}
-          TEMPO_CONFIRMACAO_ENVIO: ${{ github.event_name == 'workflow_dispatch' && inputs.tempo_confirmacao_envio || '6' }}
-          TEMPO_MAX_ESPERA_SEM_EVIDENCIA: ${{ github.event_name == 'workflow_dispatch' && inputs.tempo_max_espera_sem_evidencia || '2.5' }}
-          RELATORIO_PARCIAL_CADA: ${{ github.event_name == 'workflow_dispatch' && inputs.relatorio_parcial_cada || '10' }}
-          HTML_PARCIAL_CADA: ${{ github.event_name == 'workflow_dispatch' && inputs.html_parcial_cada || '25' }}
-          OFFSET_REGISTROS: ${{ github.event_name == 'workflow_dispatch' && inputs.offset_registros || '0' }}
-          LIMITE_REGISTROS: ${{ github.event_name == 'workflow_dispatch' && inputs.limite_registros || '0' }}
+          GENERATE_REPORT: "1"
+          SAVE_FINAL_PDF: ${{ github.event_name == 'workflow_dispatch' && inputs.save_final_pdf || '0' }}
+          SAVE_FINAL_HTML: ${{ github.event_name == 'workflow_dispatch' && inputs.save_final_html || '1' }}
+          SUBMISSION_CONFIRMATION_TIMEOUT: ${{ github.event_name == 'workflow_dispatch' && inputs.submission_confirmation_timeout || '6' }}
+          MAX_WAIT_WITHOUT_EVIDENCE: ${{ github.event_name == 'workflow_dispatch' && inputs.max_wait_without_evidence || '2.5' }}
+          PARTIAL_REPORT_EVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.partial_report_every || '10' }}
+          PARTIAL_HTML_EVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.partial_html_every || '25' }}
+          RECORD_OFFSET: ${{ github.event_name == 'workflow_dispatch' && inputs.record_offset || '0' }}
+          MAX_RECORDS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_records || '0' }}
         run: python cadastro_web.py
 
       - name: Generate execution summary
@@ -159,29 +159,29 @@ jobs:
             committed)
               {
                 echo ""
-                echo "## 🗂️ Histórico consolidado"
-                echo "- ✅ Histórico atualizado e push realizado em \`analytics/history_runs.csv\` e \`analytics/detailed_runs.csv\`."
+                echo "## 🗂️ Consolidated history"
+                echo "- ✅ History updated and pushed for \`analytics/history_runs.csv\` and \`analytics/detailed_runs.csv\`."
               } >> "$GITHUB_STEP_SUMMARY"
               ;;
             no_changes)
               {
                 echo ""
-                echo "## 🗂️ Histórico consolidado"
-                echo "- ℹ️ Nenhuma mudança detectada no histórico/detalhado para esta execução."
+                echo "## 🗂️ Consolidated history"
+                echo "- ℹ️ No history/detailed changes detected for this run."
               } >> "$GITHUB_STEP_SUMMARY"
               ;;
             push_failed)
               {
                 echo ""
-                echo "## 🗂️ Histórico consolidado"
-                echo "- ⚠️ Histórico gerado, mas push falhou (verifique permissões de Actions para escrever no repositório)."
+                echo "## 🗂️ Consolidated history"
+                echo "- ⚠️ History was generated, but push failed (check Actions write permissions)."
               } >> "$GITHUB_STEP_SUMMARY"
               ;;
             *)
               {
                 echo ""
-                echo "## 🗂️ Histórico consolidado"
-                echo "- ⚠️ Status de atualização do histórico não identificado."
+                echo "## 🗂️ Consolidated history"
+                echo "- ⚠️ Could not determine history update status."
               } >> "$GITHUB_STEP_SUMMARY"
               ;;
           esac
@@ -200,7 +200,7 @@ jobs:
           missing=0
           for var in SMTP_SERVER SMTP_PORT SMTP_USERNAME SMTP_PASSWORD EMAIL_TO EMAIL_FROM; do
             if [ -z "${!var}" ]; then
-              echo "[WARN] Secret ausente: $var"
+              echo "[WARN] Missing secret: $var"
               missing=1
             fi
           done
@@ -226,19 +226,19 @@ jobs:
           to: ${{ secrets.EMAIL_TO }}
           from: ${{ secrets.EMAIL_FROM }}
           html_body: |
-            <h2>Resumo da automação de cadastro</h2>
+            <h2>Registration automation summary</h2>
             <ul>
-              <li><b>Status do job:</b> ${{ job.status }}</li>
-              <li><b>Total processado:</b> ${{ steps.summary.outputs.total }}</li>
+              <li><b>Job status:</b> ${{ job.status }}</li>
+              <li><b>Total processed:</b> ${{ steps.summary.outputs.total }}</li>
               <li><b>OK:</b> ${{ steps.summary.outputs.ok }}</li>
-              <li><b>OK parcial:</b> ${{ steps.summary.outputs.ok_parcial }}</li>
-              <li><b>Não confirmado:</b> ${{ steps.summary.outputs.nao_confirmado }}</li>
-              <li><b>Erro:</b> ${{ steps.summary.outputs.erro }}</li>
-              <li><b>Falhas críticas:</b> ${{ steps.summary.outputs.falhas_criticas }}</li>
-              <li><b>Taxa de sucesso:</b> ${{ steps.summary.outputs.success_rate }}%</li>
+              <li><b>OK partial:</b> ${{ steps.summary.outputs.ok_parcial }}</li>
+              <li><b>Not confirmed:</b> ${{ steps.summary.outputs.nao_confirmado }}</li>
+              <li><b>Error:</b> ${{ steps.summary.outputs.erro }}</li>
+              <li><b>Critical failures:</b> ${{ steps.summary.outputs.falhas_criticas }}</li>
+              <li><b>Success rate:</b> ${{ steps.summary.outputs.success_rate }}%</li>
             </ul>
-            <p><a href="${{ env.RUN_URL }}">Abrir execução no GitHub Actions</a></p>
-            <p><a href="${{ env.DASHBOARD_URL }}">Abrir dashboard executivo (Streamlit)</a></p>
+            <p><a href="${{ env.RUN_URL }}">Open run in GitHub Actions</a></p>
+            <p><a href="${{ env.DASHBOARD_URL }}">Open executive dashboard (Streamlit)</a></p>
           attachments: logs/run_summary.json,logs/run_summary.md
 
       - name: Report email status in summary
@@ -247,8 +247,8 @@ jobs:
           if [ "${{ steps.email_config.outputs.enabled }}" != "true" ]; then
             {
               echo ""
-              echo "## 📧 Status do email"
-              echo "- ℹ️ Email não enviado porque os secrets SMTP não estão completos."
+              echo "## 📧 Email status"
+              echo "- ℹ️ Email was not sent because SMTP secrets are incomplete."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -256,17 +256,17 @@ jobs:
           if [ "${{ steps.send_email.outcome }}" = "success" ]; then
             {
               echo ""
-              echo "## 📧 Status do email"
-              echo "- ✅ Email enviado com sucesso."
+              echo "## 📧 Email status"
+              echo "- ✅ Email sent successfully."
             } >> "$GITHUB_STEP_SUMMARY"
           else
             {
               echo ""
-              echo "## 📧 Status do email"
-              echo "- ⚠️ Falha no envio do email (a automação principal continuou normalmente)."
-              echo "- Verifique credenciais SMTP e formato do usuário/senha."
-              echo "- Gmail: usar App Password de 16 caracteres com 2FA ativa."
-              echo "- Outlook/Office365: tentar porta 587 com SMTP_SECURE=false."
+              echo "## 📧 Email status"
+              echo "- ⚠️ Email sending failed (core automation still completed)."
+              echo "- Check SMTP credentials and username/password format."
+              echo "- Gmail: use a 16-character App Password with 2FA enabled."
+              echo "- Outlook/Office365: try port 587 with SMTP_SECURE=false."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 

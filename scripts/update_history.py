@@ -1,6 +1,6 @@
-"""Atualiza histórico consolidado de execuções da automação.
+"""Update consolidated automation run history.
 
-Uso típico:
+Typical usage:
     python scripts/update_history.py \
       --summary-json logs/run_summary.json \
       --history-csv analytics/history_runs.csv \
@@ -12,6 +12,10 @@ Uso típico:
       --actor "$GITHUB_ACTOR" \
       --event-name "$GITHUB_EVENT_NAME" \
       --run-url "$RUN_URL"
+
+Compatibility notes:
+- Keeps history schema column names unchanged where required
+  (e.g., `ok_parcial`, `nao_confirmado`, `falhas_criticas`).
 """
 
 from __future__ import annotations
@@ -25,39 +29,39 @@ from pathlib import Path
 import pandas as pd
 
 
-def _to_int(valor: object, padrao: int = 0) -> int:
+def to_int(value: object, default: int = 0) -> int:
     try:
-        if valor is None:
-            return padrao
-        return int(str(valor).strip())
+        if value is None:
+            return default
+        return int(str(value).strip())
     except Exception:
-        return padrao
+        return default
 
 
-def _to_float(valor: object, padrao: float = 0.0) -> float:
+def to_float(value: object, default: float = 0.0) -> float:
     try:
-        if valor is None:
-            return padrao
-        return float(str(valor).strip().replace(",", "."))
+        if value is None:
+            return default
+        return float(str(value).strip().replace(",", "."))
     except Exception:
-        return padrao
+        return default
 
 
-def extrair_run_id(report_file: str) -> str:
+def extract_run_id(report_file: str) -> str:
     match = re.search(r"(\d{8}_\d{6})", report_file or "")
-    return match.group(1) if match else "desconhecido"
+    return match.group(1) if match else "unknown"
 
 
-def extrair_run_datetime(report_file: str, generated_at: str) -> pd.Timestamp:
-    run_id = extrair_run_id(report_file)
-    if run_id != "desconhecido":
+def extract_run_datetime(report_file: str, generated_at: str) -> pd.Timestamp:
+    run_id = extract_run_id(report_file)
+    if run_id != "unknown":
         try:
             return pd.to_datetime(run_id, format="%Y%m%d_%H%M%S")
         except Exception:
             pass
 
     try:
-        # Exemplo de entrada: 2026-03-05 17:30:06 UTC
+        # Example input: 2026-03-05 17:30:06 UTC
         if generated_at.endswith(" UTC"):
             generated_at = generated_at.replace(" UTC", "")
         return pd.to_datetime(generated_at, format="%Y-%m-%d %H:%M:%S")
@@ -65,30 +69,30 @@ def extrair_run_datetime(report_file: str, generated_at: str) -> pd.Timestamp:
         return pd.Timestamp.utcnow().tz_localize(None)
 
 
-def carregar_summary(summary_json: Path) -> dict[str, object]:
+def load_summary(summary_json: Path) -> dict[str, object]:
     if not summary_json.exists():
-        raise FileNotFoundError(f"Arquivo de summary não encontrado: {summary_json}")
+        raise FileNotFoundError(f"Summary file not found: {summary_json}")
     return json.loads(summary_json.read_text(encoding="utf-8"))
 
 
-def montar_linha(summary: dict[str, object], args: argparse.Namespace) -> dict[str, object]:
+def build_history_row(summary: dict[str, object], args: argparse.Namespace) -> dict[str, object]:
     report_file = str(summary.get("report_file") or "")
     generated_at = str(summary.get("generated_at") or "")
-    run_datetime = extrair_run_datetime(report_file, generated_at)
+    run_datetime = extract_run_datetime(report_file, generated_at)
 
-    linha = {
+    row = {
         "history_updated_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
-        "run_id": extrair_run_id(report_file),
+        "run_id": extract_run_id(report_file),
         "run_datetime": run_datetime.strftime("%Y-%m-%d %H:%M:%S"),
         "report_file": report_file,
-        "total": _to_int(summary.get("total")),
-        "ok": _to_int(summary.get("ok")),
-        "ok_parcial": _to_int(summary.get("ok_parcial")),
-        "nao_confirmado": _to_int(summary.get("nao_confirmado")),
-        "erro": _to_int(summary.get("erro")),
-        "outros_status": _to_int(summary.get("outros_status")),
-        "falhas_criticas": _to_int(summary.get("falhas_criticas")),
-        "success_rate": _to_float(summary.get("success_rate")),
+        "total": to_int(summary.get("total")),
+        "ok": to_int(summary.get("ok")),
+        "ok_parcial": to_int(summary.get("ok_parcial")),
+        "nao_confirmado": to_int(summary.get("nao_confirmado")),
+        "erro": to_int(summary.get("erro")),
+        "outros_status": to_int(summary.get("outros_status")),
+        "falhas_criticas": to_int(summary.get("falhas_criticas")),
+        "success_rate": to_float(summary.get("success_rate")),
         "github_run_id": str(args.github_run_id or ""),
         "github_run_number": str(args.github_run_number or ""),
         "github_run_attempt": str(args.github_run_attempt or ""),
@@ -98,49 +102,49 @@ def montar_linha(summary: dict[str, object], args: argparse.Namespace) -> dict[s
         "event_name": str(args.event_name or ""),
         "run_url": str(args.run_url or ""),
     }
-    return linha
+    return row
 
 
-def upsert_history(history_csv: Path, linha: dict[str, object]) -> bool:
+def upsert_history(history_csv: Path, row: dict[str, object]) -> bool:
     history_csv.parent.mkdir(parents=True, exist_ok=True)
 
     if history_csv.exists() and history_csv.stat().st_size > 0:
-        historico = pd.read_csv(history_csv)
+        history = pd.read_csv(history_csv, encoding="utf-8-sig")
     else:
-        historico = pd.DataFrame()
+        history = pd.DataFrame()
 
-    if "github_run_id" in historico.columns:
-        historico["github_run_id"] = historico["github_run_id"].fillna("").astype(str)
+    if "github_run_id" in history.columns:
+        history["github_run_id"] = history["github_run_id"].fillna("").astype(str)
 
-    run_id = str(linha.get("github_run_id") or "")
-    alterou = False
+    github_run_id = str(row.get("github_run_id") or "")
+    changed = False
 
-    if historico.empty:
-        historico = pd.DataFrame([linha])
-        alterou = True
+    if history.empty:
+        history = pd.DataFrame([row])
+        changed = True
     else:
-        if "github_run_id" in historico.columns:
-            historico["github_run_id"] = historico["github_run_id"].fillna("").astype(str)
+        if "github_run_id" in history.columns:
+            history["github_run_id"] = history["github_run_id"].fillna("").astype(str)
 
-        if run_id and "github_run_id" in historico.columns:
-            mascara = historico["github_run_id"] == run_id
-            if mascara.any():
-                for chave, valor in linha.items():
-                    historico.loc[mascara, chave] = valor
-                alterou = True
+        if github_run_id and "github_run_id" in history.columns:
+            mask = history["github_run_id"] == github_run_id
+            if mask.any():
+                for key, value in row.items():
+                    history.loc[mask, key] = value
+                changed = True
             else:
-                historico = pd.concat([historico, pd.DataFrame([linha])], ignore_index=True)
-                alterou = True
+                history = pd.concat([history, pd.DataFrame([row])], ignore_index=True)
+                changed = True
         else:
-            historico = pd.concat([historico, pd.DataFrame([linha])], ignore_index=True)
-            alterou = True
+            history = pd.concat([history, pd.DataFrame([row])], ignore_index=True)
+            changed = True
 
-    if "run_datetime" in historico.columns:
-        historico["_run_dt_sort"] = pd.to_datetime(historico["run_datetime"], errors="coerce")
-        historico = historico.sort_values("_run_dt_sort").drop(columns=["_run_dt_sort"])
+    if "run_datetime" in history.columns:
+        history["_run_dt_sort"] = pd.to_datetime(history["run_datetime"], errors="coerce")
+        history = history.sort_values("_run_dt_sort").drop(columns=["_run_dt_sort"])
 
-    historico.to_csv(history_csv, index=False, encoding="utf-8-sig")
-    return alterou
+    history.to_csv(history_csv, index=False, encoding="utf-8-sig")
+    return changed
 
 
 def main() -> int:
@@ -160,10 +164,10 @@ def main() -> int:
     summary_json = Path(args.summary_json)
     history_csv = Path(args.history_csv)
 
-    summary = carregar_summary(summary_json)
-    linha = montar_linha(summary, args)
-    upsert_history(history_csv, linha)
-    print(f"Histórico atualizado em: {history_csv}")
+    summary = load_summary(summary_json)
+    row = build_history_row(summary, args)
+    upsert_history(history_csv, row)
+    print(f"History updated at: {history_csv}")
     return 0
 
 

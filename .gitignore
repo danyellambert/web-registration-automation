@@ -5,7 +5,7 @@ __pycache__/
 logs/
 .env
 
-# arquivos locais (estudo/material) - não subir para o Git
+# local study/material files - do not commit to Git
 experiments/
 materials_local/
 data/*.pdf

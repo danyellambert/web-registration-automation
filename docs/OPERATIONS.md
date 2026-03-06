@@ -14,7 +14,7 @@ Use when:
 
 - validating selector changes
 - debugging registration behavior
-- testing small subsets of records
+- testing small record subsets
 
 Command:
 
@@ -32,13 +32,13 @@ Use when:
 
 Trigger:
 
-- GitHub Actions → `Registration Web Automation` → `Run workflow`
+- GitHub Actions → `Registration Web (Cloud)` → `Run workflow`
 
 ### 2.3 Cloud Scheduled Run
 
 Use when:
 
-- recurring execution is required (e.g., nightly)
+- recurring execution is required (for example, nightly)
 
 Enablement control:
 
@@ -50,7 +50,7 @@ Enablement control:
 
 Before execution, validate:
 
-1. `LOGIN_EMAIL` and `LOGIN_SENHA` configured
+1. `LOGIN_EMAIL` and `LOGIN_PASSWORD` configured (`LOGIN_SENHA` also supported)
 2. input file available at `data/produtos.csv`
 3. file schema includes required columns
 4. Chrome dependency is available (local)
@@ -64,12 +64,18 @@ Primary controls:
 
 - `HEADLESS` (0/1)
 - `KEEP_OPEN` (0/1)
-- `LIMITE_REGISTROS`
-- `OFFSET_REGISTROS`
-- `TEMPO_CONFIRMACAO_ENVIO`
-- `TEMPO_MAX_ESPERA_SEM_EVIDENCIA`
-- `RELATORIO_PARCIAL_CADA`
-- `HTML_PARCIAL_CADA`
+- `MAX_RECORDS`
+- `RECORD_OFFSET`
+- `SUBMISSION_CONFIRMATION_TIMEOUT`
+- `MAX_WAIT_WITHOUT_EVIDENCE`
+- `PARTIAL_REPORT_EVERY`
+- `PARTIAL_HTML_EVERY`
+
+Legacy aliases are still accepted for backward compatibility:
+
+- `LIMITE_REGISTROS`, `OFFSET_REGISTROS`
+- `TEMPO_CONFIRMACAO_ENVIO`, `TEMPO_MAX_ESPERA_SEM_EVIDENCIA`
+- `RELATORIO_PARCIAL_CADA`, `HTML_PARCIAL_CADA`
 
 Recommended operational presets:
 
@@ -77,13 +83,13 @@ Recommended operational presets:
 
 - `HEADLESS=0`
 - `KEEP_OPEN=1`
-- `LIMITE_REGISTROS=10`
+- `MAX_RECORDS=10`
 
 ### 4.2 Cloud stable preset
 
 - `HEADLESS=1`
 - `KEEP_OPEN=0`
-- `LIMITE_REGISTROS=0`
+- `MAX_RECORDS=0`
 
 ---
 
@@ -91,9 +97,9 @@ Recommended operational presets:
 
 Operationally relevant outputs:
 
-- `logs/relatorio_cadastro_*.csv`
-- `logs/pagina_final_*.html` (if enabled)
-- `logs/pagina_final_*.pdf` (if enabled)
+- `logs/registration_report_*.csv`
+- `logs/final_page_*.html` (if enabled)
+- `logs/final_page_*.pdf` (if enabled)
 - `logs/run_summary.json`
 - `logs/run_summary.md`
 
@@ -102,11 +108,17 @@ Consolidated historical datasets:
 - `analytics/history_runs.csv`
 - `analytics/detailed_runs.csv`
 
+Legacy artifact names are still recognized:
+
+- `logs/relatorio_cadastro_*.csv`
+- `logs/pagina_final_*.html`
+- `logs/pagina_final_*.pdf`
+
 ---
 
 ## 6. SLOs and Service Objectives (Suggested)
 
-These are practical initial targets for corporate operation:
+Practical initial targets for corporate operation:
 
 ### 6.1 Reliability SLO
 
@@ -139,7 +151,7 @@ These are practical initial targets for corporate operation:
 
 1. check sustained success-rate trajectory
 2. identify top recurring failure details
-3. validate if fallback usage increased
+3. validate whether fallback usage increased
 4. review need for selector maintenance
 
 ---
@@ -173,7 +185,7 @@ Action target:
 Criteria:
 
 - cosmetic dashboard issue
-- isolated non-critical step failure (e.g., email notification)
+- isolated non-critical step failure (for example, email notification)
 
 Action target:
 
@@ -183,7 +195,7 @@ Action target:
 
 ## 9. Incident Runbooks
 
-## 9.1 Login failure
+### 9.1 Login failure
 
 Symptoms:
 
@@ -205,10 +217,10 @@ Symptoms:
 
 Actions:
 
-1. increase `TEMPO_CONFIRMACAO_ENVIO` gradually
-2. review `logs/pagina_final_*.html`
+1. increase `SUBMISSION_CONFIRMATION_TIMEOUT` gradually
+2. review latest final HTML evidence (`logs/final_page_*.html`)
 3. inspect `detalhe` column in latest report
-4. validate if fallback JS path is still compatible with frontend
+4. validate whether JavaScript fallback path is still frontend-compatible
 
 ### 9.3 Analytics not updated
 
@@ -231,8 +243,8 @@ Symptoms:
 
 Actions:
 
-1. verify `analytics/history_runs.csv` and `analytics/detailed_runs.csv` existence
-2. confirm repo branch contains latest analytics commit
+1. verify `analytics/history_runs.csv` and `analytics/detailed_runs.csv` exist
+2. confirm repository branch contains latest analytics commit
 3. if using remote fallback, validate `*_REMOTE_URL`
 4. reduce cache staleness via `DASHBOARD_CACHE_TTL`
 
@@ -253,9 +265,9 @@ After stabilization:
 
 Before merging operationally relevant changes:
 
-1. run local smoke test (`LIMITE_REGISTROS=5`)
+1. run local smoke test (`MAX_RECORDS=5`)
 2. run workflow manually in GitHub Actions
-3. validate analytics files update
+3. validate analytics file updates
 4. validate dashboard after refresh
 
 ---
@@ -265,7 +277,7 @@ Before merging operationally relevant changes:
 Guidelines:
 
 - never hardcode credentials in source code
-- keep sensitive values in env vars or GitHub secrets
+- keep sensitive values in environment variables or GitHub secrets
 - rotate credentials periodically
 - restrict repository admin/write access
 

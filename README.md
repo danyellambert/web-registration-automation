@@ -48,8 +48,10 @@ pip install -r requirements.txt
 
 ```bash
 export LOGIN_EMAIL="your-user@example.com"
-export LOGIN_SENHA="your-password"
+export LOGIN_PASSWORD="your-password"
 ```
+
+Legacy compatibility: `LOGIN_SENHA` is still supported as a fallback.
 
 ### 3) Run automation
 
@@ -71,6 +73,9 @@ Input dataset path:
 
 - `data/produtos.csv`
 
+> The file name and column names are intentionally kept in Portuguese for compatibility
+> with the target web application and existing historical datasets.
+
 Required columns:
 
 - `codigo`
@@ -85,21 +90,21 @@ Required columns:
 
 ## Main Runtime Variables (Automation)
 
-| Variable | Default | Description |
-|---|---:|---|
-| `LOGIN_EMAIL` | `meuemail@gmail.com` | Target system login user |
-| `LOGIN_SENHA` | `senhanormal` | Target system login password |
-| `HEADLESS` | `0` | Run in headless mode (`1`/`0`) |
-| `KEEP_OPEN` | `1` | Keep browser open in local visual mode |
-| `LIMITE_REGISTROS` | `0` | Maximum rows to process (`0` = all) |
-| `OFFSET_REGISTROS` | `0` | Skip first N rows |
-| `GERAR_RELATORIO` | `1` | Generate run CSV report |
-| `SALVAR_HTML_FINAL` | `1` | Save final HTML evidence |
-| `SALVAR_PDF_FINAL` | `0` | Save final PDF evidence |
-| `TEMPO_CONFIRMACAO_ENVIO` | `6` | Max confirmation wait time per submission |
-| `TEMPO_MAX_ESPERA_SEM_EVIDENCIA` | `2.5` | Early fallback threshold |
-| `RELATORIO_PARCIAL_CADA` | `10` | Partial CSV persistence frequency |
-| `HTML_PARCIAL_CADA` | `25` | Partial HTML persistence frequency |
+| Variable | Default | Description | Legacy alias (still supported) |
+|---|---:|---|---|
+| `LOGIN_EMAIL` | `your-user@example.com` | Target system login user | — |
+| `LOGIN_PASSWORD` | `your-password` | Target system login password | `LOGIN_SENHA` |
+| `HEADLESS` | `0` | Run in headless mode (`1`/`0`) | — |
+| `KEEP_OPEN` | `1` | Keep browser open in local visual mode | — |
+| `MAX_RECORDS` | `0` | Maximum rows to process (`0` = all) | `LIMITE_REGISTROS` |
+| `RECORD_OFFSET` | `0` | Skip first N rows | `OFFSET_REGISTROS` |
+| `GENERATE_REPORT` | `1` | Generate run CSV report | `GERAR_RELATORIO` |
+| `SAVE_FINAL_HTML` | `1` | Save final HTML evidence | `SALVAR_HTML_FINAL` |
+| `SAVE_FINAL_PDF` | `0` | Save final PDF evidence | `SALVAR_PDF_FINAL` |
+| `SUBMISSION_CONFIRMATION_TIMEOUT` | `6` | Max confirmation wait time per submission | `TEMPO_CONFIRMACAO_ENVIO` |
+| `MAX_WAIT_WITHOUT_EVIDENCE` | `2.5` | Early fallback threshold | `TEMPO_MAX_ESPERA_SEM_EVIDENCIA` |
+| `PARTIAL_REPORT_EVERY` | `10` | Partial CSV persistence frequency | `RELATORIO_PARCIAL_CADA` |
+| `PARTIAL_HTML_EVERY` | `25` | Partial HTML persistence frequency | `HTML_PARCIAL_CADA` |
 
 ---
 
@@ -117,13 +122,16 @@ Required columns:
 
 Generated during execution:
 
-- `logs/relatorio_cadastro_YYYYMMDD_HHMMSS.csv`
-- `logs/pagina_final_YYYYMMDD_HHMMSS.html` (optional)
-- `logs/pagina_final_YYYYMMDD_HHMMSS.pdf` (optional)
+- `logs/registration_report_YYYYMMDD_HHMMSS.csv`
+- `logs/final_page_YYYYMMDD_HHMMSS.html` (optional)
+- `logs/final_page_YYYYMMDD_HHMMSS.pdf` (optional)
 - `logs/run_summary.json`
 - `logs/run_summary.md`
 - `analytics/history_runs.csv`
 - `analytics/detailed_runs.csv`
+
+Legacy report names (`relatorio_cadastro_*`, `pagina_final_*`) are still recognized
+for backward compatibility.
 
 ---
 
@@ -145,7 +153,7 @@ Optional schedule enablement variable:
 Required secrets:
 
 - `LOGIN_EMAIL`
-- `LOGIN_SENHA`
+- `LOGIN_PASSWORD` (or `LOGIN_SENHA` for backward compatibility)
 
 Optional email secrets:
 
