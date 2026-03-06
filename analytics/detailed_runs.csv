@@ -24,3 +24,8 @@
 3,CAHA000251,Hashtag,Camisa,1,25.0,11.0,,ok,fallback JS aplicado: linha inserida diretamente no DOM,20260306_012037,2026-03-06 01:20:37,relatorio_cadastro_20260306_012037.csv,22744580525,2026-03-06 01:21:08 UTC
 4,CAHA000252,Hashtag,Camisa,2,25.0,11.0,Conferir estoque,ok,fallback JS aplicado: linha inserida diretamente no DOM,20260306_012037,2026-03-06 01:20:37,relatorio_cadastro_20260306_012037.csv,22744580525,2026-03-06 01:21:08 UTC
 5,MOMU000111,Multilaser,Mouse,1,11.99,3.4,,ok,fallback JS aplicado: linha inserida diretamente no DOM,20260306_012037,2026-03-06 01:20:37,relatorio_cadastro_20260306_012037.csv,22744580525,2026-03-06 01:21:08 UTC
+1,MOLO000251,Logitech,Mouse,1,25.95,6.5,,ok,JavaScript fallback applied: row inserted directly into the DOM,20260306_033728,2026-03-06 03:37:28,registration_report_20260306_033728.csv,22747905200,2026-03-06 03:37:55 UTC
+2,MOLO000192,Logitech,Mouse,2,19.95,5.0,,ok,JavaScript fallback applied: row inserted directly into the DOM,20260306_033728,2026-03-06 03:37:28,registration_report_20260306_033728.csv,22747905200,2026-03-06 03:37:55 UTC
+3,CAHA000251,Hashtag,Camisa,1,25.0,11.0,,ok,JavaScript fallback applied: row inserted directly into the DOM,20260306_033728,2026-03-06 03:37:28,registration_report_20260306_033728.csv,22747905200,2026-03-06 03:37:55 UTC
+4,CAHA000252,Hashtag,Camisa,2,25.0,11.0,Conferir estoque,ok,JavaScript fallback applied: row inserted directly into the DOM,20260306_033728,2026-03-06 03:37:28,registration_report_20260306_033728.csv,22747905200,2026-03-06 03:37:55 UTC
+5,MOMU000111,Multilaser,Mouse,1,11.99,3.4,,ok,JavaScript fallback applied: row inserted directly into the DOM,20260306_033728,2026-03-06 03:37:28,registration_report_20260306_033728.csv,22747905200,2026-03-06 03:37:55 UTC
