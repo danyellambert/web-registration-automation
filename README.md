@@ -1,176 +1,172 @@
 # Web Registration Automation
 
-Automação de cadastro de produtos com Selenium (`cadastro_web.py`) + dashboard corporativo em Streamlit (`dashboard.py`) para análise histórica dos resultados.
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.55-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![Selenium](https://img.shields.io/badge/Selenium-4.41-43B02A?logo=selenium&logoColor=white)](https://www.selenium.dev/)
+[![Workflow](https://img.shields.io/badge/GitHub%20Actions-Enabled-2088FF?logo=githubactions&logoColor=white)](./.github/workflows/registration-web.yml)
 
-## Pré-requisitos
+Production-grade product registration automation with cloud orchestration, historical analytics, and executive observability.
 
-- Python 3.11+
-- Google Chrome instalado (para execução do Selenium)
+**Live dashboard:** https://web-registration-automation-dashboard.streamlit.app/
 
-## Instalação
+---
+
+## Overview
+
+This project automates product registration in a web application using Selenium, executes reliably in GitHub Actions, consolidates analytics across runs, and exposes operational KPIs in Streamlit.
+
+It is designed to be both:
+
+- **practical for day-to-day operations** (manual/scheduled execution, optional notifications, artifacts)
+- **structured for corporate environments** (historical traceability, failure visibility, reproducible workflows)
+
+---
+
+## Key Capabilities
+
+- Resilient browser automation (`cadastro_web.py`)
+- Manual and scheduled cloud execution (`registration-web.yml`)
+- Run summary generation (`scripts/summarize_run.py`)
+- Consolidated run-level history (`analytics/history_runs.csv`)
+- Consolidated record-level detailed history (`analytics/detailed_runs.csv`)
+- Executive dashboard with cloud fallback support (`dashboard.py`)
+
+---
+
+## Quick Start
+
+### 1) Install dependencies
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-## Executar a automação
+### 2) Configure local credentials
+
+```bash
+export LOGIN_EMAIL="your-user@example.com"
+export LOGIN_SENHA="your-password"
+```
+
+### 3) Run automation
 
 ```bash
 python cadastro_web.py
 ```
 
-### Variáveis de ambiente principais
-
-- `LOGIN_EMAIL`
-- `LOGIN_SENHA`
-- `HEADLESS` (`1` ou `0`)
-- `KEEP_OPEN` (`1` ou `0`)
-
-Os relatórios são gerados em `logs/` como:
-
-- `relatorio_cadastro_YYYYMMDD_HHMMSS.csv`
-- `pagina_final_YYYYMMDD_HHMMSS.html` (quando habilitado)
-
-## Dashboard de resultados (novo)
-
-O dashboard lê automaticamente os arquivos `logs/relatorio_cadastro_*.csv` e mostra:
-
-- KPIs executivos (execuções, registros processados, taxa de sucesso, falhas críticas)
-- filtros por período/status/busca por código ou marca
-- gráfico de distribuição por status
-- tendência da taxa de sucesso por execução
-- tabela de falhas para investigação
-- download de CSV filtrado
-
-Para abrir o dashboard:
+### 4) Run dashboard
 
 ```bash
 streamlit run dashboard.py
 ```
 
-## Execução 100% cloud com GitHub Actions
+---
 
-O workflow `.github/workflows/registration-web.yml` roda a automação na nuvem com Chrome headless.
+## Data Source
 
-### Disparos disponíveis
+Input dataset path:
 
-- **Manual** (`workflow_dispatch`) com parâmetros customizáveis
-- **Agendado** (`schedule`) com cron diário
+- `data/produtos.csv`
 
-> O cron é **opcional**: ele só executa se a variável do repositório
-> `ENABLE_REGISTRATION_SCHEDULE` estiver como `true`.
+Required columns:
 
-### Como deixar o cron opcional
+- `codigo`
+- `marca`
+- `tipo`
+- `categoria`
+- `preco_unitario`
+- `custo`
+- `obs`
 
-No GitHub, configure:
+---
 
-1. `Settings` → `Secrets and variables` → `Actions` → `Variables`
-2. Crie `ENABLE_REGISTRATION_SCHEDULE`
-3. Valor:
-   - `true` = habilita execução agendada
-   - `false` (ou não definir) = desabilita execução agendada
+## Main Runtime Variables (Automation)
 
-### Secrets obrigatórios da automação
+| Variable | Default | Description |
+|---|---:|---|
+| `LOGIN_EMAIL` | `meuemail@gmail.com` | Target system login user |
+| `LOGIN_SENHA` | `senhanormal` | Target system login password |
+| `HEADLESS` | `0` | Run in headless mode (`1`/`0`) |
+| `KEEP_OPEN` | `1` | Keep browser open in local visual mode |
+| `LIMITE_REGISTROS` | `0` | Maximum rows to process (`0` = all) |
+| `OFFSET_REGISTROS` | `0` | Skip first N rows |
+| `GERAR_RELATORIO` | `1` | Generate run CSV report |
+| `SALVAR_HTML_FINAL` | `1` | Save final HTML evidence |
+| `SALVAR_PDF_FINAL` | `0` | Save final PDF evidence |
+| `TEMPO_CONFIRMACAO_ENVIO` | `6` | Max confirmation wait time per submission |
+| `TEMPO_MAX_ESPERA_SEM_EVIDENCIA` | `2.5` | Early fallback threshold |
+| `RELATORIO_PARCIAL_CADA` | `10` | Partial CSV persistence frequency |
+| `HTML_PARCIAL_CADA` | `25` | Partial HTML persistence frequency |
+
+---
+
+## Dashboard Variables
+
+| Variable | Default | Description |
+|---|---:|---|
+| `HISTORY_REMOTE_URL` | empty | Optional remote history CSV fallback |
+| `DETAILED_REMOTE_URL` | empty | Optional remote detailed CSV fallback |
+| `DASHBOARD_CACHE_TTL` | `60` | Streamlit cache TTL in seconds |
+
+---
+
+## Outputs and Artifacts
+
+Generated during execution:
+
+- `logs/relatorio_cadastro_YYYYMMDD_HHMMSS.csv`
+- `logs/pagina_final_YYYYMMDD_HHMMSS.html` (optional)
+- `logs/pagina_final_YYYYMMDD_HHMMSS.pdf` (optional)
+- `logs/run_summary.json`
+- `logs/run_summary.md`
+- `analytics/history_runs.csv`
+- `analytics/detailed_runs.csv`
+
+---
+
+## Cloud Workflow
+
+Workflow file:
+
+- `.github/workflows/registration-web.yml`
+
+Trigger modes:
+
+1. `workflow_dispatch` (manual with inputs)
+2. `schedule` (cron)
+
+Optional schedule enablement variable:
+
+- `ENABLE_REGISTRATION_SCHEDULE=true`
+
+Required secrets:
 
 - `LOGIN_EMAIL`
 - `LOGIN_SENHA`
 
-### Secrets opcionais para envio de email automático
+Optional email secrets:
 
-Se todos estiverem configurados, o workflow envia um email no fim da execução:
+- `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `EMAIL_TO`, `EMAIL_FROM`
 
-- `SMTP_SERVER`
-- `SMTP_PORT`
-- `SMTP_USERNAME`
-- `SMTP_PASSWORD`
-- `EMAIL_TO`
-- `EMAIL_FROM`
-- `SMTP_SECURE` (opcional, padrão `true`)
+---
 
-#### Exemplo rápido (Gmail)
+## Documentation
 
-- `SMTP_SERVER = smtp.gmail.com`
-- `SMTP_PORT = 465`
-- `SMTP_SECURE = true`
-- `SMTP_USERNAME = seuemail@gmail.com`
-- `SMTP_PASSWORD = APP PASSWORD de 16 caracteres` (não é a senha normal)
-- `EMAIL_FROM = seuemail@gmail.com`
-- `EMAIL_TO = seuemail@gmail.com`
+For complete enterprise documentation, see:
 
-> Importante: no Gmail, habilite 2FA e gere uma **App Password**.
-> Erro `535-5.7.8 Username and Password not accepted` normalmente indica
-> credencial inválida (senha normal no lugar da App Password, usuário incorreto,
-> ou app password expirada).
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 
-#### Observação de robustez
+---
 
-Se o SMTP falhar, o workflow **não derruba a automação principal**.
-Ele registra aviso no summary e continua publicando artifacts.
+## Contribution
 
-### O que o workflow gera
+Recommended commit prefixes:
 
-- artifacts com `logs/*.csv`, `logs/*.html`, `logs/*.pdf`
-- `logs/run_summary.json`
-- `logs/run_summary.md`
-- `analytics/history_runs.csv` (histórico consolidado de execuções)
-- `analytics/detailed_runs.csv` (base detalhada consolidada por registro)
-- resumo no `GITHUB_STEP_SUMMARY`
-
-## Histórico consolidado (Fase 3)
-
-Agora o workflow atualiza automaticamente `analytics/history_runs.csv` a cada execução,
-salvando métricas agregadas por run (total, ok, falhas, taxa de sucesso, run URL etc.).
-
-Esse arquivo é comitado automaticamente pelo GitHub Actions na branch atual.
-
-### Pré-requisito
-
-Em `Settings -> Actions -> General`, garanta permissão de escrita para o token:
-
-- **Workflow permissions: Read and write permissions**
-
-Sem isso, a automação principal roda, mas o push do histórico pode falhar.
-
-## Dashboard com histórico cloud (Fase 4)
-
-O `dashboard.py` agora lê duas fontes:
-
-1. `logs/relatorio_cadastro_*.csv` (detalhe local por registro)
-2. `analytics/history_runs.csv` (histórico consolidado por execução)
-
-Quando estiver em ambiente cloud sem a pasta `logs/`, o dashboard usa fallback para:
-
-- `analytics/detailed_runs.csv` (base detalhada versionada no repositório)
-
-Opcionalmente, você pode definir a variável de ambiente `HISTORY_REMOTE_URL`
-para carregar um CSV remoto de histórico quando não houver arquivo local.
-
-Opcionalmente, você pode definir `DETAILED_REMOTE_URL` para carregar a base detalhada
-de um CSV remoto quando necessário.
-
-### Atualização automática do dashboard (sem reboot)
-
-O dashboard possui controles para evitar reboot manual:
-
-- botão **🔄 Atualizar agora** (limpa cache e recarrega dados)
-- toggle **Auto-refresh** no intervalo configurado
-- cache com TTL configurável via variável de ambiente
-
-Variável opcional:
-
-- `DASHBOARD_CACHE_TTL` (segundos, padrão `60`)
-
-Exemplo no Streamlit Cloud (Settings → Secrets):
-
-```toml
-HISTORY_REMOTE_URL = "https://raw.githubusercontent.com/danyellambert/web-registration-automation/main/analytics/history_runs.csv"
-DETAILED_REMOTE_URL = "https://raw.githubusercontent.com/danyellambert/web-registration-automation/main/analytics/detailed_runs.csv"
-DASHBOARD_CACHE_TTL = "60"
-```
-
-### Link do dashboard no email da execução
-
-O email enviado pelo workflow agora inclui também o link direto do dashboard:
-
-- `https://web-registration-automation-dashboard.streamlit.app/`
+- `feat:` feature
+- `fix:` bugfix
+- `chore:` maintenance
+- `docs:` documentation

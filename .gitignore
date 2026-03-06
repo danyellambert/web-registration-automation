@@ -8,5 +8,5 @@ logs/
 # arquivos locais (estudo/material) - não subir para o Git
 experiments/
 materials_local/
-aula/*.pdf
-aula/*.mp4
+data/*.pdf
+data/*.mp4

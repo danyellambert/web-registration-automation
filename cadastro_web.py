@@ -30,7 +30,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 # =========================
 
 URL_LOGIN = "https://dlp.hashtagtreinamentos.com/python/intensivao/login"
-CSV_PATH = Path(__file__).resolve().parent / "aula" / "produtos.csv"
+CSV_PATH = Path(__file__).resolve().parent / "data" / "produtos.csv"
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 
 LOGIN_EMAIL = os.getenv("LOGIN_EMAIL", "meuemail@gmail.com")
