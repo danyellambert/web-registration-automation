@@ -75,12 +75,22 @@ def _get_float_env(name: str, default: float, legacy_names: Iterable[str] | None
 # Configuration
 # =========================
 
-LOGIN_URL = "https://dlp.hashtagtreinamentos.com/python/intensivao/login"
+LOGIN_URL = _get_env(
+    "LOGIN_URL",
+    "http://127.0.0.1:8000/login.html",
+)
 INPUT_CSV_PATH = Path(__file__).resolve().parent / "data" / "produtos.csv"
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 
-LOGIN_EMAIL = _get_env("LOGIN_EMAIL", "your-user@example.com")
-LOGIN_PASSWORD = _get_env("LOGIN_PASSWORD", "your-password", legacy_names=["LOGIN_SENHA"])
+LOGIN_EMAIL = _get_env(
+    "LOGIN_EMAIL",
+    "your-user@example.com",
+)
+LOGIN_PASSWORD = _get_env(
+    "LOGIN_PASSWORD",
+    "your-password",
+    legacy_names=["LOGIN_SENHA"],
+)
 
 HEADLESS = _get_bool_env("HEADLESS", False)
 KEEP_OPEN = _get_bool_env("KEEP_OPEN", True)

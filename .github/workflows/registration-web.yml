@@ -69,10 +69,23 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Start local target site (self-hosted in runner)
+        run: |
+          nohup python -m http.server 8000 --directory web_page/pagina_exclusiva > /tmp/local_site.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8000/login.html >/dev/null; then
+              echo "Local site is up on http://127.0.0.1:8000/login.html"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/login.html >/dev/null
+
       - name: Run automation
         env:
+          LOGIN_URL: "http://127.0.0.1:8000/login.html"
           LOGIN_EMAIL: ${{ secrets.LOGIN_EMAIL }}
-          LOGIN_PASSWORD: ${{ secrets.LOGIN_PASSWORD || secrets.LOGIN_SENHA }}
+          LOGIN_PASSWORD: ${{ secrets.LOGIN_PASSWORD }}
           HEADLESS: "1"
           KEEP_OPEN: "0"
           GENERATE_REPORT: "1"
@@ -85,6 +98,12 @@ jobs:
           RECORD_OFFSET: ${{ github.event_name == 'workflow_dispatch' && inputs.record_offset || '0' }}
           MAX_RECORDS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_records || '0' }}
         run: python cadastro_web.py
+
+      - name: Debug local site log on failure
+        if: failure()
+        run: |
+          echo "--- /tmp/local_site.log (last 200 lines) ---"
+          tail -n 200 /tmp/local_site.log || true
 
       - name: Generate execution summary
         if: always()
