@@ -3,6 +3,14 @@ name: Registration Web (Cloud)
 on:
   workflow_dispatch:
     inputs:
+      target_site:
+        description: "Target website for this run"
+        required: false
+        type: choice
+        options:
+          - local_runner
+          - github_pages
+        default: local_runner
       max_records:
         description: "Maximum number of records (0 = no limit)"
         required: false
@@ -70,6 +78,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Start local target site (self-hosted in runner)
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.target_site == 'local_runner' }}
         run: |
           nohup python -m http.server 8000 --directory web_page/pagina_exclusiva > /tmp/local_site.log 2>&1 &
           for i in {1..30}; do
@@ -81,9 +90,14 @@ jobs:
           done
           curl -fsS http://127.0.0.1:8000/login.html >/dev/null
 
+      - name: Check GitHub Pages target (when selected)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.target_site == 'github_pages' }}
+        run: |
+          curl -fsS https://danyellambert.github.io/web-registration-automation/login.html >/dev/null
+
       - name: Run automation
         env:
-          LOGIN_URL: "http://127.0.0.1:8000/login.html"
+          LOGIN_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.target_site == 'github_pages' && 'https://danyellambert.github.io/web-registration-automation/login.html' || 'http://127.0.0.1:8000/login.html' }}
           LOGIN_EMAIL: ${{ secrets.LOGIN_EMAIL }}
           LOGIN_PASSWORD: ${{ secrets.LOGIN_PASSWORD }}
           HEADLESS: "1"
@@ -100,7 +114,7 @@ jobs:
         run: python cadastro_web.py
 
       - name: Debug local site log on failure
-        if: failure()
+        if: ${{ failure() && (github.event_name != 'workflow_dispatch' || inputs.target_site == 'local_runner') }}
         run: |
           echo "--- /tmp/local_site.log (last 200 lines) ---"
           tail -n 200 /tmp/local_site.log || true
