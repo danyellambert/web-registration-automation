@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "web_page/pagina_exclusiva/**"
+      - "web_page/exclusive_page/**"
       - ".github/workflows/deploy-web-page.yml"
   workflow_dispatch:
 
@@ -30,7 +30,7 @@ jobs:
       - name: Upload static site artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: web_page/pagina_exclusiva
+          path: web_page/exclusive_page
 
       - name: Deploy to GitHub Pages
         id: deployment

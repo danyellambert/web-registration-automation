@@ -14,7 +14,7 @@ Compatibility notes:
   - `registration_report_*.csv` (current)
   - `relatorio_cadastro_*.csv` (legacy)
 - Keeps summary field names compatible with historical schema
-  (`ok_parcial`, `nao_confirmado`, etc.).
+  (`partial_success`, `not_confirmed`, etc.).
 """
 
 from __future__ import annotations
@@ -36,11 +36,11 @@ class RunSummary:
     run_url: str
     total: int
     ok: int
-    ok_parcial: int
-    nao_confirmado: int
-    erro: int
-    outros_status: int
-    falhas_criticas: int
+    partial_success: int
+    not_confirmed: int
+    error: int
+    other_statuses: int
+    critical_failures: int
     success_rate: float
 
 
@@ -61,10 +61,10 @@ def extract_run_id(report_file: str) -> str:
 def compute_metrics(report_csv: Path, run_url: str) -> RunSummary:
     counters = {
         "ok": 0,
-        "ok_parcial": 0,
-        "nao_confirmado": 0,
-        "erro": 0,
-        "outros_status": 0,
+        "partial_success": 0,
+        "not_confirmed": 0,
+        "error": 0,
+        "other_statuses": 0,
     }
 
     total = 0
@@ -72,13 +72,13 @@ def compute_metrics(report_csv: Path, run_url: str) -> RunSummary:
         reader = csv.DictReader(file)
         for row in reader:
             total += 1
-            status = (row.get("status_execucao") or "").strip()
+            status = (row.get("execution_status") or "").strip()
             if status in counters:
                 counters[status] += 1
             else:
-                counters["outros_status"] += 1
+                counters["other_statuses"] += 1
 
-    critical_failures = counters["nao_confirmado"] + counters["erro"]
+    critical_failures = counters["not_confirmed"] + counters["error"]
     success_rate = (counters["ok"] / total * 100.0) if total else 0.0
 
     return RunSummary(
@@ -87,11 +87,11 @@ def compute_metrics(report_csv: Path, run_url: str) -> RunSummary:
         run_url=run_url,
         total=total,
         ok=counters["ok"],
-        ok_parcial=counters["ok_parcial"],
-        nao_confirmado=counters["nao_confirmado"],
-        erro=counters["erro"],
-        outros_status=counters["outros_status"],
-        falhas_criticas=critical_failures,
+        partial_success=counters["partial_success"],
+        not_confirmed=counters["not_confirmed"],
+        error=counters["error"],
+        other_statuses=counters["other_statuses"],
+        critical_failures=critical_failures,
         success_rate=round(success_rate, 2),
     )
 
@@ -114,11 +114,11 @@ def build_markdown(summary: RunSummary) -> str:
             "|---|---:|",
             f"| Total processed | {summary.total} |",
             f"| OK | {summary.ok} |",
-            f"| OK partial | {summary.ok_parcial} |",
-            f"| Not confirmed | {summary.nao_confirmado} |",
-            f"| Error | {summary.erro} |",
-            f"| Other statuses | {summary.outros_status} |",
-            f"| Critical failures | {summary.falhas_criticas} |",
+            f"| OK partial | {summary.partial_success} |",
+            f"| Not confirmed | {summary.not_confirmed} |",
+            f"| Error | {summary.error} |",
+            f"| Other statuses | {summary.other_statuses} |",
+            f"| Critical failures | {summary.critical_failures} |",
             f"| Success rate | {summary.success_rate:.2f}% |",
             "",
         ]
@@ -148,10 +148,10 @@ def export_github_outputs(summary: RunSummary, report_path: str) -> None:
         "report_path": report_path,
         "total": str(summary.total),
         "ok": str(summary.ok),
-        "ok_parcial": str(summary.ok_parcial),
-        "nao_confirmado": str(summary.nao_confirmado),
-        "erro": str(summary.erro),
-        "falhas_criticas": str(summary.falhas_criticas),
+        "partial_success": str(summary.partial_success),
+        "not_confirmed": str(summary.not_confirmed),
+        "error": str(summary.error),
+        "critical_failures": str(summary.critical_failures),
         "success_rate": f"{summary.success_rate:.2f}",
     }
 
@@ -171,10 +171,10 @@ def export_no_report_state() -> None:
         file.write("report_path=\n")
         file.write("total=0\n")
         file.write("ok=0\n")
-        file.write("ok_parcial=0\n")
-        file.write("nao_confirmado=0\n")
-        file.write("erro=0\n")
-        file.write("falhas_criticas=0\n")
+        file.write("partial_success=0\n")
+        file.write("not_confirmed=0\n")
+        file.write("error=0\n")
+        file.write("critical_failures=0\n")
         file.write("success_rate=0.00\n")
 
 
@@ -206,11 +206,11 @@ def main() -> int:
                     "run_url": args.run_url,
                     "total": 0,
                     "ok": 0,
-                    "ok_parcial": 0,
-                    "nao_confirmado": 0,
-                    "erro": 0,
-                    "outros_status": 0,
-                    "falhas_criticas": 0,
+                    "partial_success": 0,
+                    "not_confirmed": 0,
+                    "error": 0,
+                    "other_statuses": 0,
+                    "critical_failures": 0,
                     "success_rate": 0.0,
                 },
                 ensure_ascii=False,

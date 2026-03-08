@@ -7,7 +7,7 @@ Analysis layers:
 
 Important compatibility notes:
 - Data schema fields from automation/history remain in Portuguese where required
-  (e.g., status_execucao, nao_confirmado, falhas_criticas, etc.).
+  (e.g., execution_status, not_confirmed, critical_failures, etc.).
 """
 
 from __future__ import annotations
@@ -39,19 +39,19 @@ DETAILED_REMOTE_URL = os.getenv("DETAILED_REMOTE_URL", "").strip()
 CACHE_TTL_SECONDS = _positive_int_env("DASHBOARD_CACHE_TTL", 60)
 
 REPORT_PATTERNS = ["registration_report_*.csv", "relatorio_cadastro_*.csv"]
-STATUS_ORDER = ["ok", "ok_parcial", "nao_confirmado", "erro"]
+STATUS_ORDER = ["ok", "partial_success", "not_confirmed", "error"]
 
 BASE_COLUMNS = [
-    "indice_csv",
-    "codigo",
-    "marca",
-    "tipo",
-    "categoria",
-    "preco_unitario",
-    "custo",
-    "obs",
-    "status_execucao",
-    "detalhe",
+    "row_index",
+    "product_code",
+    "brand",
+    "product_type",
+    "category",
+    "unit_price",
+    "cost",
+    "notes",
+    "execution_status",
+    "detail",
 ]
 
 HISTORY_COLUMNS = [
@@ -61,11 +61,11 @@ HISTORY_COLUMNS = [
     "report_file",
     "total",
     "ok",
-    "ok_parcial",
-    "nao_confirmado",
-    "erro",
-    "outros_status",
-    "falhas_criticas",
+    "partial_success",
+    "not_confirmed",
+    "error",
+    "other_statuses",
+    "critical_failures",
     "success_rate",
     "github_run_id",
     "github_run_number",
@@ -129,13 +129,13 @@ def load_reports(log_dir: str) -> pd.DataFrame:
     data["run_datetime"] = pd.to_datetime(data["run_datetime"], errors="coerce")
     data["run_date"] = data["run_datetime"].dt.date
 
-    for column in ["codigo", "marca", "tipo", "categoria", "status_execucao", "detalhe"]:
+    for column in ["product_code", "brand", "product_type", "category", "execution_status", "detail"]:
         data[column] = data[column].fillna("").astype(str)
 
-    for numeric_column in ["preco_unitario", "custo"]:
+    for numeric_column in ["unit_price", "cost"]:
         data[numeric_column] = pd.to_numeric(data[numeric_column], errors="coerce").fillna(0.0)
 
-    data["margem_unitaria"] = data["preco_unitario"] - data["custo"]
+    data["margem_unitaria"] = data["unit_price"] - data["cost"]
     return data
 
 
@@ -184,22 +184,22 @@ def load_cloud_detailed_data(detailed_csv: str, detailed_remote_url: str = "") -
     detailed["run_date"] = detailed["run_datetime"].dt.date
 
     for column in [
-        "codigo",
-        "marca",
-        "tipo",
-        "categoria",
-        "status_execucao",
-        "detalhe",
+        "product_code",
+        "brand",
+        "product_type",
+        "category",
+        "execution_status",
+        "detail",
         "source_file",
     ]:
         detailed[column] = detailed[column].fillna("").astype(str)
 
-    for numeric_column in ["preco_unitario", "custo"]:
+    for numeric_column in ["unit_price", "cost"]:
         detailed[numeric_column] = pd.to_numeric(
             detailed[numeric_column], errors="coerce"
         ).fillna(0.0)
 
-    detailed["margem_unitaria"] = detailed["preco_unitario"] - detailed["custo"]
+    detailed["margem_unitaria"] = detailed["unit_price"] - detailed["cost"]
     return detailed
 
 
@@ -233,11 +233,11 @@ def load_history(history_csv: str, history_remote_url: str = "") -> pd.DataFrame
     for column in [
         "total",
         "ok",
-        "ok_parcial",
-        "nao_confirmado",
-        "erro",
-        "outros_status",
-        "falhas_criticas",
+        "partial_success",
+        "not_confirmed",
+        "error",
+        "other_statuses",
+        "critical_failures",
         "success_rate",
     ]:
         history[column] = pd.to_numeric(history[column], errors="coerce").fillna(0)
@@ -357,7 +357,7 @@ def main() -> None:
         min_date = valid_dates.min()
         max_date = valid_dates.max()
 
-    available_brands = sorted(brand for brand in (data["marca"].unique() if not data.empty else []) if brand)
+    available_brands = sorted(brand for brand in (data["brand"].unique() if not data.empty else []) if brand)
     available_events = sorted(
         event for event in (history["event_name"].unique() if not history.empty else []) if event
     )
@@ -408,10 +408,10 @@ def main() -> None:
     if not data.empty:
         detailed = data[(data["run_date"] >= start_date) & (data["run_date"] <= end_date)].copy()
         if selected_brands:
-            detailed = detailed[detailed["marca"].isin(selected_brands)]
+            detailed = detailed[detailed["brand"].isin(selected_brands)]
         if search_term:
-            mask = detailed["codigo"].str.contains(search_term, case=False, na=False) | detailed[
-                "marca"
+            mask = detailed["product_code"].str.contains(search_term, case=False, na=False) | detailed[
+                "brand"
             ].str.contains(search_term, case=False, na=False)
             detailed = detailed[mask]
 
@@ -434,15 +434,15 @@ def main() -> None:
         total_runs = int(filtered_history["run_id"].nunique())
         total_records = int(filtered_history["total"].sum())
         total_ok = int(filtered_history["ok"].sum())
-        critical_failures = int(filtered_history["falhas_criticas"].sum())
+        critical_failures = int(filtered_history["critical_failures"].sum())
         success_rate = (total_ok / total_records * 100) if total_records else 0.0
         latest_run = filtered_history["run_datetime"].max()
     else:
         total_runs = int(detailed["run_id"].nunique()) if not detailed.empty else 0
         total_records = int(len(detailed))
-        total_ok = int((detailed["status_execucao"] == "ok").sum()) if not detailed.empty else 0
+        total_ok = int((detailed["execution_status"] == "ok").sum()) if not detailed.empty else 0
         critical_failures = (
-            int(detailed["status_execucao"].isin(["erro", "nao_confirmado"]).sum())
+            int(detailed["execution_status"].isin(["error", "not_confirmed"]).sum())
             if not detailed.empty
             else 0
         )
@@ -467,17 +467,17 @@ def main() -> None:
             trend_base["success_rate"], errors="coerce"
         ).fillna(0)
         trend_base["failures"] = pd.to_numeric(
-            trend_base["falhas_criticas"], errors="coerce"
+            trend_base["critical_failures"], errors="coerce"
         ).fillna(0)
     else:
         trend_base = (
             detailed.groupby(["run_id", "run_datetime"], dropna=False)
             .agg(
-                total=("status_execucao", "size"),
-                ok=("status_execucao", lambda values: int((values == "ok").sum())),
+                total=("execution_status", "size"),
+                ok=("execution_status", lambda values: int((values == "ok").sum())),
                 failures=(
-                    "status_execucao",
-                    lambda values: int(values.isin(["erro", "nao_confirmado"]).sum()),
+                    "execution_status",
+                    lambda values: int(values.isin(["error", "not_confirmed"]).sum()),
                 ),
             )
             .reset_index()
@@ -489,7 +489,7 @@ def main() -> None:
 
     if not detailed.empty:
         status_counts = (
-            detailed.groupby("status_execucao", dropna=False)
+            detailed.groupby("execution_status", dropna=False)
             .size()
             .reset_index(name="count")
             .sort_values("count", ascending=False)
@@ -497,24 +497,24 @@ def main() -> None:
     elif not filtered_history.empty:
         status_counts = pd.DataFrame(
             {
-                "status_execucao": ["ok", "ok_parcial", "nao_confirmado", "erro"],
+                "execution_status": ["ok", "partial_success", "not_confirmed", "error"],
                 "count": [
                     int(filtered_history["ok"].sum()),
-                    int(filtered_history["ok_parcial"].sum()),
-                    int(filtered_history["nao_confirmado"].sum()),
-                    int(filtered_history["erro"].sum()),
+                    int(filtered_history["partial_success"].sum()),
+                    int(filtered_history["not_confirmed"].sum()),
+                    int(filtered_history["error"].sum()),
                 ],
             }
         )
         status_counts = status_counts[status_counts["count"] > 0]
     else:
-        status_counts = pd.DataFrame(columns=["status_execucao", "count"])
+        status_counts = pd.DataFrame(columns=["execution_status", "count"])
 
     if not status_counts.empty:
-        status_counts["status_execucao"] = pd.Categorical(
-            status_counts["status_execucao"], categories=STATUS_ORDER, ordered=True
+        status_counts["execution_status"] = pd.Categorical(
+            status_counts["execution_status"], categories=STATUS_ORDER, ordered=True
         )
-        status_counts = status_counts.sort_values("status_execucao")
+        status_counts = status_counts.sort_values("execution_status")
 
     trend_fig = px.line(
         trend_base,
@@ -528,7 +528,7 @@ def main() -> None:
 
     status_fig = px.pie(
         status_counts,
-        names="status_execucao",
+        names="execution_status",
         values="count",
         title="Status composition",
         hole=0.5,
@@ -543,13 +543,13 @@ def main() -> None:
     # -----------------------------
     if not detailed.empty:
         by_brand = (
-            detailed.groupby("marca", dropna=False)
+            detailed.groupby("brand", dropna=False)
             .agg(
-                total=("status_execucao", "size"),
-                ok=("status_execucao", lambda values: int((values == "ok").sum())),
+                total=("execution_status", "size"),
+                ok=("execution_status", lambda values: int((values == "ok").sum())),
                 failures=(
-                    "status_execucao",
-                    lambda values: int(values.isin(["erro", "nao_confirmado"]).sum()),
+                    "execution_status",
+                    lambda values: int(values.isin(["error", "not_confirmed"]).sum()),
                 ),
                 average_margin=("margem_unitaria", "mean"),
             )
@@ -560,7 +560,7 @@ def main() -> None:
 
         brand_fig = px.bar(
             by_brand,
-            x="marca",
+            x="brand",
             y="success_rate",
             color="total",
             text_auto=".1f",
@@ -569,15 +569,15 @@ def main() -> None:
         brand_fig.update_layout(yaxis_title="Success (%)", xaxis_title="Brand")
 
         heat_data = (
-            detailed.assign(status_fallback=detailed["status_execucao"].replace("", "no_status"))
-            .groupby(["categoria", "status_fallback"], dropna=False)
+            detailed.assign(status_fallback=detailed["execution_status"].replace("", "no_status"))
+            .groupby(["category", "status_fallback"], dropna=False)
             .size()
             .reset_index(name="count")
         )
         heatmap_fig = px.density_heatmap(
             heat_data,
             x="status_fallback",
-            y="categoria",
+            y="category",
             z="count",
             color_continuous_scale="Blues",
             title="Heatmap category x status",
@@ -600,10 +600,10 @@ def main() -> None:
                 "run_id",
                 "total",
                 "ok",
-                "ok_parcial",
-                "nao_confirmado",
-                "erro",
-                "falhas_criticas",
+                "partial_success",
+                "not_confirmed",
+                "error",
+                "critical_failures",
                 "success_rate",
                 "event_name",
                 "actor",
@@ -617,21 +617,21 @@ def main() -> None:
         st.info("No local detailed base available for investigation under current filters.")
     else:
         failures = (
-            detailed[detailed["status_execucao"].isin(["erro", "nao_confirmado", "ok_parcial"])][
+            detailed[detailed["execution_status"].isin(["error", "not_confirmed", "partial_success"])][
                 [
                     "run_datetime",
                     "run_id",
-                    "indice_csv",
-                    "codigo",
-                    "marca",
-                    "tipo",
-                    "categoria",
-                    "status_execucao",
-                    "detalhe",
+                    "row_index",
+                    "product_code",
+                    "brand",
+                    "product_type",
+                    "category",
+                    "execution_status",
+                    "detail",
                     "source_file",
                 ]
             ]
-            .sort_values(["run_datetime", "indice_csv"], ascending=[False, True])
+            .sort_values(["run_datetime", "row_index"], ascending=[False, True])
             .reset_index(drop=True)
         )
         if failures.empty:
@@ -644,7 +644,7 @@ def main() -> None:
         st.info("No detailed records for current filters.")
     else:
         detailed_view = detailed.sort_values(
-            ["run_datetime", "indice_csv"], ascending=[False, True]
+            ["run_datetime", "row_index"], ascending=[False, True]
         ).reset_index(drop=True)
         st.dataframe(detailed_view, use_container_width=True, hide_index=True)
 

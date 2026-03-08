@@ -5,7 +5,7 @@ Reads the current run CSV report and upserts records into
 
 Compatibility notes:
 - Keeps detailed schema field names unchanged where required
-  (e.g., `indice_csv`, `status_execucao`, `detalhe`).
+  (e.g., `row_index`, `execution_status`, `detail`).
 """
 
 from __future__ import annotations
@@ -19,16 +19,16 @@ import pandas as pd
 
 
 BASE_COLUMNS = [
-    "indice_csv",
-    "codigo",
-    "marca",
-    "tipo",
-    "categoria",
-    "preco_unitario",
-    "custo",
-    "obs",
-    "status_execucao",
-    "detalhe",
+    "row_index",
+    "product_code",
+    "brand",
+    "product_type",
+    "category",
+    "unit_price",
+    "cost",
+    "notes",
+    "execution_status",
+    "detail",
 ]
 
 
@@ -103,7 +103,7 @@ def upsert_detailed(
 
     result = pd.concat([base, new_data], ignore_index=True)
     result["run_datetime"] = pd.to_datetime(result["run_datetime"], errors="coerce")
-    result = result.sort_values(["run_datetime", "indice_csv"], ascending=[True, True])
+    result = result.sort_values(["run_datetime", "row_index"], ascending=[True, True])
     result.to_csv(detailed_csv, index=False, encoding="utf-8-sig")
     return True
 

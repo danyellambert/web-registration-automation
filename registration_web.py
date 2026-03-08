@@ -6,20 +6,22 @@ Designed for stable execution locally and in GitHub Actions.
 - Incremental CSV + HTML persistence to avoid losing evidence on timeouts
 
 Important compatibility notes:
-- Source dataset columns remain in Portuguese because the target system uses them
-  (e.g., codigo, marca, tipo, categoria, preco_unitario, custo, obs).
-- Frontend keys/functions from the target page are kept as-is
-  (e.g., cliqueiBotao, listaProdutos, visivel).
+- Input dataset uses `data/products.csv` as the canonical source.
+- Selector strategy still includes legacy frontend fallbacks for resilience.
 """
 
 from __future__ import annotations
 
 import base64
 import os
+import socket
+import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
+from urllib.parse import urlparse
 
 import pandas as pd
 from selenium import webdriver
@@ -79,7 +81,8 @@ LOGIN_URL = _get_env(
     "LOGIN_URL",
     "http://127.0.0.1:8000/login.html",
 )
-INPUT_CSV_PATH = Path(__file__).resolve().parent / "data" / "produtos.csv"
+INPUT_CSV_PATH = Path(__file__).resolve().parent / "data" / "products.csv"
+LOCAL_SITE_DIR = Path(__file__).resolve().parent / "web_page" / "exclusive_page"
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 
 LOGIN_EMAIL = _get_env(
@@ -95,36 +98,38 @@ LOGIN_PASSWORD = _get_env(
 HEADLESS = _get_bool_env("HEADLESS", False)
 KEEP_OPEN = _get_bool_env("KEEP_OPEN", True)
 
-MAX_RECORDS = _get_int_env("MAX_RECORDS", 0, legacy_names=["LIMITE_REGISTROS"])
-RECORD_OFFSET = _get_int_env("RECORD_OFFSET", 0, legacy_names=["OFFSET_REGISTROS"])
+MAX_RECORDS = _get_int_env("MAX_RECORDS", 0, legacy_names=None)
+RECORD_OFFSET = _get_int_env("RECORD_OFFSET", 0, legacy_names=None)
 
-GENERATE_REPORT = _get_bool_env("GENERATE_REPORT", True, legacy_names=["GERAR_RELATORIO"])
-SAVE_FINAL_HTML = _get_bool_env("SAVE_FINAL_HTML", True, legacy_names=["SALVAR_HTML_FINAL"])
-SAVE_FINAL_PDF = _get_bool_env("SAVE_FINAL_PDF", False, legacy_names=["SALVAR_PDF_FINAL"])
+GENERATE_REPORT = _get_bool_env("GENERATE_REPORT", True, legacy_names=None)
+SAVE_FINAL_HTML = _get_bool_env("SAVE_FINAL_HTML", True, legacy_names=None)
+SAVE_FINAL_PDF = _get_bool_env("SAVE_FINAL_PDF", False, legacy_names=None)
 
 SUBMISSION_CONFIRMATION_TIMEOUT = _get_float_env(
-    "SUBMISSION_CONFIRMATION_TIMEOUT", 6.0, legacy_names=["TEMPO_CONFIRMACAO_ENVIO"]
+    "SUBMISSION_CONFIRMATION_TIMEOUT", 6.0, legacy_names=None
 )
 MAX_WAIT_WITHOUT_EVIDENCE = _get_float_env(
-    "MAX_WAIT_WITHOUT_EVIDENCE", 2.5, legacy_names=["TEMPO_MAX_ESPERA_SEM_EVIDENCIA"]
+    "MAX_WAIT_WITHOUT_EVIDENCE", 2.5, legacy_names=None
 )
 
 PARTIAL_REPORT_EVERY = max(
-    1, _get_int_env("PARTIAL_REPORT_EVERY", 10, legacy_names=["RELATORIO_PARCIAL_CADA"])
+    1, _get_int_env("PARTIAL_REPORT_EVERY", 10, legacy_names=None)
 )
-PARTIAL_HTML_EVERY = _get_int_env("PARTIAL_HTML_EVERY", 25, legacy_names=["HTML_PARCIAL_CADA"])
+PARTIAL_HTML_EVERY = _get_int_env("PARTIAL_HTML_EVERY", 25, legacy_names=None)
+AUTO_START_LOCAL_SITE = _get_bool_env("AUTO_START_LOCAL_SITE", True)
+LOCAL_SITE_START_TIMEOUT = _get_float_env("LOCAL_SITE_START_TIMEOUT", 8.0)
 
 REPORT_COLUMNS = [
-    "indice_csv",
-    "codigo",
-    "marca",
-    "tipo",
-    "categoria",
-    "preco_unitario",
-    "custo",
-    "obs",
-    "status_execucao",
-    "detalhe",
+    "row_index",
+    "product_code",
+    "brand",
+    "product_type",
+    "category",
+    "unit_price",
+    "cost",
+    "notes",
+    "execution_status",
+    "detail",
 ]
 
 
@@ -148,58 +153,183 @@ LOGIN_PASSWORD_LOCATORS: List[Locator] = [
 
 LOGIN_BUTTON_LOCATORS: List[Locator] = [
     (By.CSS_SELECTOR, "button[type='submit']"),
-    (By.XPATH, "//button[contains(., 'Entrar') or contains(., 'Login')]"),
+    (By.XPATH, "//button[contains(., 'Sign In') or contains(., 'Entrar') or contains(., 'Login')]"),
 ]
 
-# NOTE: field keys intentionally match the Portuguese data schema used by the target system.
+# NOTE: field keys follow the canonical English dataset schema.
+# Selector fallbacks still include legacy frontend identifiers/text where helpful.
 FIELD_LOCATORS: Dict[str, List[Locator]] = {
-    "codigo": [
-        (By.NAME, "codigo"),
-        (By.ID, "codigo"),
+    "product_code": [
+        (By.NAME, "product_code"),
+        (By.ID, "product_code"),
+        (By.NAME, "product_code"),
+        (By.ID, "product_code"),
+        (By.CSS_SELECTOR, "input[placeholder*='Product code']"),
+        (By.CSS_SELECTOR, "input[placeholder*='product code']"),
         (By.CSS_SELECTOR, "input[placeholder*='ódigo']"),
         (By.CSS_SELECTOR, "input[placeholder*='odigo']"),
     ],
-    "marca": [
-        (By.NAME, "marca"),
-        (By.ID, "marca"),
-        (By.CSS_SELECTOR, "input[placeholder*='marca']"),
+    "brand": [
+        (By.NAME, "brand"),
+        (By.ID, "brand"),
+        (By.NAME, "brand"),
+        (By.ID, "brand"),
+        (By.CSS_SELECTOR, "input[placeholder*='Brand']"),
+        (By.CSS_SELECTOR, "input[placeholder*='brand']"),
+        (By.CSS_SELECTOR, "input[placeholder*='brand']"),
     ],
-    "tipo": [
-        (By.NAME, "tipo"),
-        (By.ID, "tipo"),
-        (By.CSS_SELECTOR, "input[placeholder*='tipo']"),
+    "product_type": [
+        (By.NAME, "product_type"),
+        (By.ID, "product_type"),
+        (By.NAME, "product_type"),
+        (By.ID, "product_type"),
+        (By.CSS_SELECTOR, "input[placeholder*='Product type']"),
+        (By.CSS_SELECTOR, "input[placeholder*='product type']"),
+        (By.CSS_SELECTOR, "input[placeholder*='product_type']"),
     ],
-    "categoria": [
-        (By.NAME, "categoria"),
-        (By.ID, "categoria"),
-        (By.CSS_SELECTOR, "input[placeholder*='categoria']"),
+    "category": [
+        (By.NAME, "category"),
+        (By.ID, "category"),
+        (By.NAME, "category"),
+        (By.ID, "category"),
+        (By.CSS_SELECTOR, "input[placeholder*='Category']"),
+        (By.CSS_SELECTOR, "input[placeholder*='category']"),
+        (By.CSS_SELECTOR, "input[placeholder*='category']"),
     ],
-    "preco_unitario": [
-        (By.NAME, "preco_unitario"),
-        (By.ID, "preco_unitario"),
+    "unit_price": [
+        (By.NAME, "unit_price"),
+        (By.ID, "unit_price"),
+        (By.NAME, "unit_price"),
+        (By.ID, "unit_price"),
         (By.NAME, "preco"),
         (By.ID, "preco"),
     ],
-    "custo": [
-        (By.NAME, "custo"),
-        (By.ID, "custo"),
-        (By.CSS_SELECTOR, "input[placeholder*='custo']"),
+    "cost": [
+        (By.NAME, "cost"),
+        (By.ID, "cost"),
+        (By.NAME, "cost"),
+        (By.ID, "cost"),
+        (By.CSS_SELECTOR, "input[placeholder*='Cost']"),
+        (By.CSS_SELECTOR, "input[placeholder*='cost']"),
+        (By.CSS_SELECTOR, "input[placeholder*='cost']"),
     ],
-    "obs": [
-        (By.NAME, "obs"),
-        (By.ID, "obs"),
-        (By.CSS_SELECTOR, "textarea[name='obs']"),
-        (By.CSS_SELECTOR, "input[name='obs']"),
+    "notes": [
+        (By.NAME, "notes"),
+        (By.ID, "notes"),
+        (By.NAME, "notes"),
+        (By.ID, "notes"),
+        (By.CSS_SELECTOR, "textarea[name='notes']"),
+        (By.CSS_SELECTOR, "input[name='notes']"),
+        (By.CSS_SELECTOR, "textarea[name='notes']"),
+        (By.CSS_SELECTOR, "input[name='notes']"),
     ],
 }
 
 SUBMIT_BUTTON_LOCATORS: List[Locator] = [
     (By.ID, "pgtpy-botao"),
     (By.CSS_SELECTOR, "button#pgtpy-botao"),
+    (By.XPATH, "//button[@id='pgtpy-botao' and contains(normalize-space(), 'Submit')]"),
     (By.XPATH, "//button[@id='pgtpy-botao' and contains(normalize-space(), 'Enviar')]"),
+    (By.XPATH, "//button[contains(., 'Register') or contains(., 'Submit')]"),
     (By.XPATH, "//button[contains(., 'Cadastrar') or contains(., 'Enviar')]"),
     (By.CSS_SELECTOR, "button[type='submit']"),
 ]
+
+
+def resolve_input_csv_path() -> Path:
+    return INPUT_CSV_PATH
+
+
+def _is_local_http_login_url(login_url: str) -> bool:
+    parsed = urlparse(login_url)
+    return parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}
+
+
+def _is_tcp_endpoint_reachable(host: str, port: int, timeout: float = 1.0) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def maybe_start_local_target_site(login_url: str) -> subprocess.Popen | None:
+    if not AUTO_START_LOCAL_SITE:
+        return None
+    if not _is_local_http_login_url(login_url):
+        return None
+
+    parsed = urlparse(login_url)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 80
+
+    if _is_tcp_endpoint_reachable(host, port):
+        return None
+
+    if not LOCAL_SITE_DIR.exists():
+        print(f"[WEB] Local site directory not found: {LOCAL_SITE_DIR}", flush=True)
+        return None
+
+    print(
+        f"[WEB] Local target site is not reachable at {login_url}. "
+        "Attempting auto-start...",
+        flush=True,
+    )
+
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "http.server",
+            str(port),
+            "--bind",
+            host,
+            "--directory",
+            str(LOCAL_SITE_DIR),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+    )
+
+    start_time = time.time()
+    while (time.time() - start_time) < LOCAL_SITE_START_TIMEOUT:
+        if _is_tcp_endpoint_reachable(host, port):
+            print(f"[WEB] Local target site auto-started at {login_url}", flush=True)
+            return process
+        if process.poll() is not None:
+            break
+        time.sleep(0.2)
+
+    try:
+        process.terminate()
+        process.wait(timeout=2)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
+
+    print(
+        "[WEB] Failed to auto-start the local target site. "
+        "Start it manually with: "
+        "python -m http.server 8000 --directory web_page/exclusive_page",
+        flush=True,
+    )
+    return None
+
+
+def stop_local_target_site(process: subprocess.Popen | None) -> None:
+    if process is None:
+        return
+    try:
+        process.terminate()
+        process.wait(timeout=3)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
+    print("[WEB] Local target site auto-start process stopped.", flush=True)
 
 
 def start_driver(headless: bool, keep_open: bool) -> webdriver.Chrome:
@@ -259,14 +389,31 @@ def load_input_table(csv_path: Path, max_records: int = 0, record_offset: int = 
         raise FileNotFoundError(f"Input CSV not found: {csv_path}")
 
     table = pd.read_csv(csv_path)
+    table.columns = [str(col).strip() for col in table.columns]
+
+    column_aliases_to_english = {
+        "codigo": "product_code",
+        "marca": "brand",
+        "tipo": "product_type",
+        "categoria": "category",
+        "preco_unitario": "unit_price",
+        "preco": "unit_price",
+        "custo": "cost",
+        "obs": "notes",
+    }
+    table = table.rename(columns=column_aliases_to_english)
+
+    if "notes" not in table.columns:
+        table["notes"] = ""
+
     required_columns = [
-        "codigo",
-        "marca",
-        "tipo",
-        "categoria",
-        "preco_unitario",
-        "custo",
-        "obs",
+        "product_code",
+        "brand",
+        "product_type",
+        "category",
+        "unit_price",
+        "cost",
+        "notes",
     ]
 
     missing_columns = [col for col in required_columns if col not in table.columns]
@@ -288,7 +435,7 @@ def wait_until_table_frontend_ready(driver: webdriver.Chrome, timeout: float = 2
                     """
                     return (
                         document.readyState === 'complete' &&
-                        typeof cliqueiBotao === 'function' &&
+                        !!document.querySelector('form') &&
                         !!document.querySelector('#pgtpy-botao')
                     );
                     """
@@ -340,7 +487,7 @@ def login(driver: webdriver.Chrome, email: str, password: str) -> None:
     clear_and_type(password_field, password)
     login_button.click()
 
-    find_element(driver, FIELD_LOCATORS["codigo"], description="product code field")
+    find_element(driver, FIELD_LOCATORS["product_code"], description="product code field")
     wait_until_table_frontend_ready(driver)
     apply_frontend_resilience_patch(driver)
 
@@ -356,7 +503,7 @@ def submit_registration_form(driver: webdriver.Chrome) -> None:
         )
         submit_button.click()
     except TimeoutException:
-        obs_field = find_element(driver, FIELD_LOCATORS["obs"], description="obs field")
+        obs_field = find_element(driver, FIELD_LOCATORS["notes"], description="notes field")
         obs_field.send_keys(Keys.ENTER)
 
 
@@ -365,10 +512,16 @@ def read_products_from_local_storage(driver: webdriver.Chrome) -> List[List[obje
         products = driver.execute_script(
             """
             try {
-                const raw = window.localStorage.getItem('listaProdutos');
-                if (!raw) return [];
-                const parsed = JSON.parse(raw);
-                return Array.isArray(parsed) ? parsed : [];
+                const keys = ['productList'];
+                for (const key of keys) {
+                    const raw = window.localStorage.getItem(key);
+                    if (!raw) continue;
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) {
+                        return parsed;
+                    }
+                }
+                return [];
             } catch (e) {
                 return [];
             }
@@ -448,11 +601,13 @@ def insert_product_with_js_fallback(driver: webdriver.Chrome, record: Dict[str, 
                 if (tableElement) tableElement.classList.add('visivel');
 
                 try {
-                    const raw = localStorage.getItem('listaProdutos');
+                    const keys = ['productList'];
+                    const storageKey = keys.find(k => localStorage.getItem(k) !== null) || 'productList';
+                    const raw = localStorage.getItem(storageKey);
                     const list = raw ? JSON.parse(raw) : [];
                     if (Array.isArray(list)) {
                         list.push(values);
-                        localStorage.setItem('listaProdutos', JSON.stringify(list));
+                        localStorage.setItem(storageKey, JSON.stringify(list));
                     }
                 } catch (e) {}
 
@@ -463,13 +618,13 @@ def insert_product_with_js_fallback(driver: webdriver.Chrome, record: Dict[str, 
 
                 return true;
                 """,
-                record["codigo"],
-                record["marca"],
-                record["tipo"],
-                record["categoria"],
-                record["preco_unitario"],
-                record["custo"],
-                record["obs"],
+                record["product_code"],
+                record["brand"],
+                record["product_type"],
+                record["category"],
+                record["unit_price"],
+                record["cost"],
+                record["notes"],
             )
         )
     except Exception:
@@ -491,7 +646,7 @@ def confirm_submission(
         try:
             code_field = find_element(
                 driver,
-                FIELD_LOCATORS["codigo"],
+                FIELD_LOCATORS["product_code"],
                 description="product code field",
                 timeout_per_locator=0.5,
             )
@@ -510,7 +665,7 @@ def confirm_submission(
                     f"submission confirmed in DOM table (rows {rows_before} -> {rows_after})",
                 )
             return (
-                "ok_parcial",
+                "partial_success",
                 f"table increased without code confirmation (rows {rows_before} -> {rows_after})",
             )
 
@@ -522,7 +677,7 @@ def confirm_submission(
                     f"(count {local_storage_count_before} -> {local_storage_count_after})",
                 )
             return (
-                "ok_parcial",
+                "partial_success",
                 "localStorage increased without code confirmation "
                 f"(count {local_storage_count_before} -> {local_storage_count_after})",
             )
@@ -537,14 +692,14 @@ def confirm_submission(
 
     if code_field_was_cleared:
         return (
-            "ok_parcial",
+            "partial_success",
             "code field was cleared, but no table/localStorage increase was detected "
             f"(rows {rows_before} -> {final_rows} | "
             f"localStorage {local_storage_count_before} -> {final_local_storage_count})",
         )
 
     return (
-        "nao_confirmado",
+        "not_confirmed",
         "code field did not clear after submission "
         f"(rows {rows_before} -> {final_rows} | "
         f"localStorage {local_storage_count_before} -> {final_local_storage_count})",
@@ -619,14 +774,14 @@ def register_products(
 
     for index, (_, row) in enumerate(table.iterrows(), start=1):
         record = {
-            "indice_csv": str(index),
-            "codigo": format_cell_value(row["codigo"]),
-            "marca": format_cell_value(row["marca"]),
-            "tipo": format_cell_value(row["tipo"]),
-            "categoria": format_cell_value(row["categoria"]),
-            "preco_unitario": format_cell_value(row["preco_unitario"]),
-            "custo": format_cell_value(row["custo"]),
-            "obs": format_cell_value(row["obs"]),
+            "row_index": str(index),
+            "product_code": format_cell_value(row["product_code"]),
+            "brand": format_cell_value(row["brand"]),
+            "product_type": format_cell_value(row["product_type"]),
+            "category": format_cell_value(row["category"]),
+            "unit_price": format_cell_value(row["unit_price"]),
+            "cost": format_cell_value(row["cost"]),
+            "notes": format_cell_value(row["notes"]),
         }
 
         try:
@@ -634,38 +789,38 @@ def register_products(
             local_storage_count_before = len(read_products_from_local_storage(driver))
 
             clear_and_type(
-                find_element(driver, FIELD_LOCATORS["codigo"], description="code field"),
-                record["codigo"],
+                find_element(driver, FIELD_LOCATORS["product_code"], description="code field"),
+                record["product_code"],
             )
             clear_and_type(
-                find_element(driver, FIELD_LOCATORS["marca"], description="brand field"),
-                record["marca"],
+                find_element(driver, FIELD_LOCATORS["brand"], description="brand field"),
+                record["brand"],
             )
             clear_and_type(
-                find_element(driver, FIELD_LOCATORS["tipo"], description="type field"),
-                record["tipo"],
+                find_element(driver, FIELD_LOCATORS["product_type"], description="type field"),
+                record["product_type"],
             )
             clear_and_type(
-                find_element(driver, FIELD_LOCATORS["categoria"], description="category field"),
-                record["categoria"],
+                find_element(driver, FIELD_LOCATORS["category"], description="category field"),
+                record["category"],
             )
             clear_and_type(
-                find_element(driver, FIELD_LOCATORS["preco_unitario"], description="unit price field"),
-                record["preco_unitario"],
+                find_element(driver, FIELD_LOCATORS["unit_price"], description="unit price field"),
+                record["unit_price"],
             )
             clear_and_type(
-                find_element(driver, FIELD_LOCATORS["custo"], description="cost field"),
-                record["custo"],
+                find_element(driver, FIELD_LOCATORS["cost"], description="cost field"),
+                record["cost"],
             )
             clear_and_type(
-                find_element(driver, FIELD_LOCATORS["obs"], description="notes field"),
-                record["obs"],
+                find_element(driver, FIELD_LOCATORS["notes"], description="notes field"),
+                record["notes"],
             )
 
             submit_registration_form(driver)
             status, details = confirm_submission(
                 driver,
-                record["codigo"],
+                record["product_code"],
                 rows_before=rows_before,
                 local_storage_count_before=local_storage_count_before,
             )
@@ -674,15 +829,15 @@ def register_products(
                 rows_after = get_table_row_count(driver)
                 if rows_after <= rows_before:
                     fallback_ok = insert_product_with_js_fallback(driver, record)
-                    if fallback_ok and is_product_code_in_dom_table(driver, record["codigo"]):
+                    if fallback_ok and is_product_code_in_dom_table(driver, record["product_code"]):
                         status = "ok"
                         details = "JavaScript fallback applied: row inserted directly into the DOM"
         except Exception as exc:
-            status = "erro"
+            status = "error"
             details = str(exc)
 
-        record["status_execucao"] = status
-        record["detalhe"] = details
+        record["execution_status"] = status
+        record["detail"] = details
         results.append(record)
 
         print(f"[WEB] Product {index}/{len(table)} -> {status}", flush=True)
@@ -703,10 +858,10 @@ def register_products(
 
 def print_execution_summary(results: List[Dict[str, str]]) -> None:
     total = len(results)
-    ok = sum(1 for item in results if item.get("status_execucao") == "ok")
-    ok_partial = sum(1 for item in results if item.get("status_execucao") == "ok_parcial")
-    not_confirmed = sum(1 for item in results if item.get("status_execucao") == "nao_confirmado")
-    error = sum(1 for item in results if item.get("status_execucao") == "erro")
+    ok = sum(1 for item in results if item.get("execution_status") == "ok")
+    ok_partial = sum(1 for item in results if item.get("execution_status") == "partial_success")
+    not_confirmed = sum(1 for item in results if item.get("execution_status") == "not_confirmed")
+    error = sum(1 for item in results if item.get("execution_status") == "error")
 
     print("[WEB] Execution summary:", flush=True)
     print(f"       total: {total}", flush=True)
@@ -718,7 +873,11 @@ def print_execution_summary(results: List[Dict[str, str]]) -> None:
 
 def main() -> None:
     print("[WEB] Starting selector-based registration automation...", flush=True)
-    table = load_input_table(INPUT_CSV_PATH, max_records=MAX_RECORDS, record_offset=RECORD_OFFSET)
+    table = load_input_table(
+        resolve_input_csv_path(),
+        max_records=MAX_RECORDS,
+        record_offset=RECORD_OFFSET,
+    )
 
     if HEADLESS and KEEP_OPEN:
         print("[WEB] HEADLESS=1 ignores KEEP_OPEN visual mode.", flush=True)
@@ -736,11 +895,14 @@ def main() -> None:
     if html_path:
         html_path.write_text("<html><body>execution started</body></html>", encoding="utf-8")
 
-    driver = start_driver(HEADLESS, KEEP_OPEN)
+    local_site_process = maybe_start_local_target_site(LOGIN_URL)
+
+    driver: webdriver.Chrome | None = None
     results: List[Dict[str, str]] = []
     fatal_error: Exception | None = None
 
     try:
+        driver = start_driver(HEADLESS, KEEP_OPEN)
         login(driver, LOGIN_EMAIL, LOGIN_PASSWORD)
         results = register_products(
             driver,
@@ -752,6 +914,13 @@ def main() -> None:
     except Exception as exc:
         fatal_error = exc
         print(f"[WEB] Fatal error: {exc}", flush=True)
+        if "ERR_CONNECTION_REFUSED" in str(exc):
+            print(f"[WEB] Could not reach LOGIN_URL: {LOGIN_URL}", flush=True)
+            print(
+                "[WEB] Tip: if running locally, start the target site with: "
+                "python -m http.server 8000 --directory web_page/exclusive_page",
+                flush=True,
+            )
     finally:
         if results:
             print_execution_summary(results)
@@ -760,14 +929,14 @@ def main() -> None:
             save_report_to_path(results, report_path)
             print(f"[WEB] Report saved at: {report_path}", flush=True)
 
-        if html_path:
+        if html_path and driver is not None:
             try:
                 save_html_to_path(driver, html_path)
                 print(f"[WEB] Final HTML saved at: {html_path}", flush=True)
             except Exception:
                 pass
 
-        if SAVE_FINAL_PDF:
+        if SAVE_FINAL_PDF and driver is not None:
             try:
                 pdf_path = save_full_page_pdf(driver)
                 if pdf_path:
@@ -775,10 +944,13 @@ def main() -> None:
             except Exception as pdf_exc:
                 print(f"[WEB] Failed to generate PDF: {pdf_exc}", flush=True)
 
-        if not (KEEP_OPEN and not HEADLESS):
-            driver.quit()
-        else:
-            print("[WEB] KEEP_OPEN=1 -> browser kept open for manual review.", flush=True)
+        if driver is not None:
+            if not (KEEP_OPEN and not HEADLESS):
+                driver.quit()
+            else:
+                print("[WEB] KEEP_OPEN=1 -> browser kept open for manual review.", flush=True)
+
+        stop_local_target_site(local_site_process)
 
     if fatal_error:
         raise fatal_error

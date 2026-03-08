@@ -19,7 +19,7 @@ Use when:
 Command:
 
 ```bash
-python cadastro_web.py
+python registration_web.py
 ```
 
 ### 2.2 Cloud Manual Run (GitHub Actions)
@@ -51,7 +51,7 @@ Enablement control:
 Before execution, validate:
 
 1. `LOGIN_EMAIL` and `LOGIN_PASSWORD` configured (`LOGIN_SENHA` also supported)
-2. input file available at `data/produtos.csv`
+2. input file available at `data/products.csv`
 3. file schema includes required columns
 4. Chrome dependency is available (local)
 5. workflow permissions allow committing analytics files (cloud)
@@ -126,7 +126,7 @@ Practical initial targets for corporate operation:
 
 ### 6.2 Critical Failure SLO
 
-- `falhas_criticas = 0` in at least 90% of runs
+- `critical_failures = 0` in at least 90% of runs
 
 ### 6.3 Pipeline Freshness SLO
 
@@ -173,7 +173,7 @@ Action target:
 
 Criteria:
 
-- elevated `nao_confirmado` / `erro`
+- elevated `not_confirmed` / `error`
 - unstable frontend signals but partial throughput
 
 Action target:
@@ -209,7 +209,7 @@ Actions:
 3. run locally in non-headless mode for visual inspection
 4. validate login selectors and update if page changed
 
-### 9.2 High `nao_confirmado` rate
+### 9.2 High `not_confirmed` rate
 
 Symptoms:
 
@@ -219,7 +219,7 @@ Actions:
 
 1. increase `SUBMISSION_CONFIRMATION_TIMEOUT` gradually
 2. review latest final HTML evidence (`logs/final_page_*.html`)
-3. inspect `detalhe` column in latest report
+3. inspect `detail` column in latest report
 4. validate whether JavaScript fallback path is still frontend-compatible
 
 ### 9.3 Analytics not updated
@@ -288,7 +288,7 @@ Guidelines:
 Run automation locally:
 
 ```bash
-python cadastro_web.py
+python registration_web.py
 ```
 
 Run dashboard locally:
@@ -300,7 +300,7 @@ streamlit run dashboard.py
 Quick syntax check:
 
 ```bash
-python -m py_compile cadastro_web.py dashboard.py scripts/*.py
+python -m py_compile registration_web.py dashboard.py scripts/*.py
 ```
 
 ---

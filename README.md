@@ -24,7 +24,7 @@ It is designed to be both:
 
 ## Key Capabilities
 
-- Resilient browser automation (`cadastro_web.py`)
+- Resilient browser automation (`registration_web.py`)
 - Manual and scheduled cloud execution (`registration-web.yml`)
 - Run summary generation (`scripts/summarize_run.py`)
 - Consolidated run-level history (`analytics/history_runs.csv`)
@@ -56,8 +56,12 @@ Legacy compatibility: `LOGIN_SENHA` is still supported as a fallback.
 ### 3) Run automation
 
 ```bash
-python cadastro_web.py
+python registration_web.py
 ```
+
+By default, `LOGIN_URL` points to `http://127.0.0.1:8000/login.html`. If this local
+site is not running, `registration_web.py` now auto-starts a temporary server using
+`web_page/exclusive_page`.
 
 ### 4) Run dashboard
 
@@ -71,20 +75,20 @@ streamlit run dashboard.py
 
 Input dataset path:
 
-- `data/produtos.csv`
+- `data/products.csv` (primary)
 
-> The file name and column names are intentionally kept in Portuguese for compatibility
-> with the target web application and existing historical datasets.
+`registration_web.py` accepts the canonical English dataset schema and keeps
+alias-mapping support for legacy Portuguese column names.
 
 Required columns:
 
-- `codigo`
-- `marca`
-- `tipo`
-- `categoria`
-- `preco_unitario`
-- `custo`
-- `obs`
+- `product_code`
+- `brand`
+- `product_type`
+- `category`
+- `unit_price`
+- `cost`
+- `notes`
 
 ---
 
@@ -92,8 +96,11 @@ Required columns:
 
 | Variable | Default | Description | Legacy alias (still supported) |
 |---|---:|---|---|
+| `LOGIN_URL` | `http://127.0.0.1:8000/login.html` | Target login URL |
 | `LOGIN_EMAIL` | `your-user@example.com` | Target system login user | — |
 | `LOGIN_PASSWORD` | `your-password` | Target system login password | `LOGIN_SENHA` |
+| `AUTO_START_LOCAL_SITE` | `1` | Auto-start local static site if `LOGIN_URL` is local and offline | — |
+| `LOCAL_SITE_START_TIMEOUT` | `8` | Max seconds waiting local site auto-start | — |
 | `HEADLESS` | `0` | Run in headless mode (`1`/`0`) | — |
 | `KEEP_OPEN` | `1` | Keep browser open in local visual mode | — |
 | `MAX_RECORDS` | `0` | Maximum rows to process (`0` = all) | `LIMITE_REGISTROS` |

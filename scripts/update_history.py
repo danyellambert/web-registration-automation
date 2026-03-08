@@ -15,7 +15,7 @@ Typical usage:
 
 Compatibility notes:
 - Keeps history schema column names unchanged where required
-  (e.g., `ok_parcial`, `nao_confirmado`, `falhas_criticas`).
+  (e.g., `partial_success`, `not_confirmed`, `critical_failures`).
 """
 
 from __future__ import annotations
@@ -87,11 +87,11 @@ def build_history_row(summary: dict[str, object], args: argparse.Namespace) -> d
         "report_file": report_file,
         "total": to_int(summary.get("total")),
         "ok": to_int(summary.get("ok")),
-        "ok_parcial": to_int(summary.get("ok_parcial")),
-        "nao_confirmado": to_int(summary.get("nao_confirmado")),
-        "erro": to_int(summary.get("erro")),
-        "outros_status": to_int(summary.get("outros_status")),
-        "falhas_criticas": to_int(summary.get("falhas_criticas")),
+        "partial_success": to_int(summary.get("partial_success")),
+        "not_confirmed": to_int(summary.get("not_confirmed")),
+        "error": to_int(summary.get("error")),
+        "other_statuses": to_int(summary.get("other_statuses")),
+        "critical_failures": to_int(summary.get("critical_failures")),
         "success_rate": to_float(summary.get("success_rate")),
         "github_run_id": str(args.github_run_id or ""),
         "github_run_number": str(args.github_run_number or ""),

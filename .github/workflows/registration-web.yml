@@ -80,7 +80,7 @@ jobs:
       - name: Start local target site (self-hosted in runner)
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.target_site == 'local_runner' }}
         run: |
-          nohup python -m http.server 8000 --directory web_page/pagina_exclusiva > /tmp/local_site.log 2>&1 &
+          nohup python -m http.server 8000 --directory web_page/exclusive_page > /tmp/local_site.log 2>&1 &
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:8000/login.html >/dev/null; then
               echo "Local site is up on http://127.0.0.1:8000/login.html"
@@ -111,7 +111,7 @@ jobs:
           PARTIAL_HTML_EVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.partial_html_every || '25' }}
           RECORD_OFFSET: ${{ github.event_name == 'workflow_dispatch' && inputs.record_offset || '0' }}
           MAX_RECORDS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_records || '0' }}
-        run: python cadastro_web.py
+        run: python registration_web.py
 
       - name: Debug local site log on failure
         if: ${{ failure() && (github.event_name != 'workflow_dispatch' || inputs.target_site == 'local_runner') }}
@@ -264,10 +264,10 @@ jobs:
               <li><b>Job status:</b> ${{ job.status }}</li>
               <li><b>Total processed:</b> ${{ steps.summary.outputs.total }}</li>
               <li><b>OK:</b> ${{ steps.summary.outputs.ok }}</li>
-              <li><b>OK partial:</b> ${{ steps.summary.outputs.ok_parcial }}</li>
-              <li><b>Not confirmed:</b> ${{ steps.summary.outputs.nao_confirmado }}</li>
-              <li><b>Error:</b> ${{ steps.summary.outputs.erro }}</li>
-              <li><b>Critical failures:</b> ${{ steps.summary.outputs.falhas_criticas }}</li>
+              <li><b>OK partial:</b> ${{ steps.summary.outputs.partial_success }}</li>
+              <li><b>Not confirmed:</b> ${{ steps.summary.outputs.not_confirmed }}</li>
+              <li><b>Error:</b> ${{ steps.summary.outputs.error }}</li>
+              <li><b>Critical failures:</b> ${{ steps.summary.outputs.critical_failures }}</li>
               <li><b>Success rate:</b> ${{ steps.summary.outputs.success_rate }}%</li>
             </ul>
             <p><a href="${{ env.RUN_URL }}">Open run in GitHub Actions</a></p>

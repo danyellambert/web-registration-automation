@@ -21,11 +21,11 @@ Core design goals:
 
 ## 3. High-Level Components
 
-### 3.1 Automation Runtime (`cadastro_web.py`)
+### 3.1 Automation Runtime (`registration_web.py`)
 
 Responsibilities:
 
-- read source dataset (`data/produtos.csv`)
+- read source dataset (`data/products.csv`)
 - authenticate in the target web app
 - fill and submit registration form per record
 - validate submission with evidence signals
@@ -63,8 +63,8 @@ Responsibilities:
 ## 4. End-to-End Data Flow
 
 ```text
-data/produtos.csv
-    -> cadastro_web.py
+data/products.csv
+    -> registration_web.py
     -> logs/registration_report_*.csv
     -> scripts/summarize_run.py
     -> logs/run_summary.json + logs/run_summary.md
@@ -109,9 +109,9 @@ After submit, it confirms success by comparing post-submit signals.
 Possible statuses:
 
 - `ok`
-- `ok_parcial`
-- `nao_confirmado`
-- `erro`
+- `partial_success`
+- `not_confirmed`
+- `error`
 
 > Status values are intentionally kept in Portuguese for compatibility with existing
 > analytics schema and downstream dashboards.
@@ -168,17 +168,17 @@ Legacy aliases are still supported:
 
 Representative fields:
 
-- `indice_csv`, `codigo`, `marca`, `tipo`, `categoria`
-- `preco_unitario`, `custo`, `obs`
-- `status_execucao`, `detalhe`
+- `row_index`, `product_code`, `brand`, `product_type`, `category`
+- `unit_price`, `cost`, `notes`
+- `execution_status`, `detail`
 
 ### 7.2 Run-Level History (`analytics/history_runs.csv`)
 
 Representative fields:
 
 - `run_id`, `run_datetime`, `report_file`
-- `total`, `ok`, `ok_parcial`, `nao_confirmado`, `erro`
-- `falhas_criticas`, `success_rate`
+- `total`, `ok`, `partial_success`, `not_confirmed`, `error`
+- `critical_failures`, `success_rate`
 - `github_run_id`, `github_run_number`, `run_url`, `actor`, `event_name`
 
 Upsert key priority:
