@@ -46,7 +46,7 @@
     <div class="pglpy-secao">
       <div class="pglpy-container">
         <div class="pgtpy-div-titulo">
-          <div class="pgtpy-titulo-copy">Python PowerUp System</div>
+          <div class="pgtpy-titulo-copy">RegFlow Platform</div>
           <div class="pgtpy-subtitulo">Sign in to continue</div>
         </div>
         <div class="pgtpy-html w-embed">
@@ -89,9 +89,10 @@
           <img
             src="./assets/main_logo.webp"
             loading="lazy"
-            alt="Python PowerUp System logo"
+            alt="RegFlow Platform logo"
             class="footer-logo"
           />
+          <span class="footer-signature">Danyel Lambert</span>
         </div>
       </div>
 
@@ -178,9 +179,33 @@
             display: inline-block;
           }
 
+          .footer-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1.2rem;
+            width: auto !important;
+            max-width: none !important;
+            overflow: visible !important;
+          }
+
           .footer-logo {
             width: 7.2rem;
             height: auto;
+          }
+
+          .footer-signature {
+            display: inline-block !important;
+            padding: 0;
+            border-radius: 0;
+            background: transparent;
+            box-shadow: none;
+            font-size: 1.65rem;
+            font-weight: 600;
+            color: rgba(17, 24, 39, 0.92) !important;
+            letter-spacing: 0.02em;
+            line-height: 1;
+            white-space: nowrap;
           }
 
           @media (max-width: 991px) {
@@ -198,6 +223,15 @@
           @media (max-width: 479px) {
             html {
               font-size: 43.75%;
+            }
+
+            .footer-container {
+              flex-direction: column;
+              gap: 0.6rem;
+            }
+
+            .footer-signature {
+              font-size: 1.5rem;
             }
           }
         </style>
