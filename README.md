@@ -383,3 +383,328 @@ Recommended pre-PR checks:
    ```
 
 3. Update docs whenever runtime behavior, workflow behavior, or operational controls change.
+
+---
+
+## 15. Dependency Reference
+
+All Python dependencies are pinned in `requirements.txt`:
+
+| Package | Version | Purpose in this project |
+|---|---:|---|
+| `pandas` | `2.3.3` | CSV ingestion, transformation, history consolidation |
+| `selenium` | `4.41.0` | Browser automation and DOM interaction |
+| `streamlit` | `1.55.0` | Dashboard UI and execution surface |
+| `plotly` | `6.6.0` | Interactive visualizations in the dashboard |
+| `altair` | `6.0.0` | Included dependency used by Streamlit ecosystem and future charting extensions |
+
+---
+
+## 16. Script and File Reference
+
+### 16.1 Core Python entry points
+
+#### `registration_web.py`
+
+Main automation runtime. It is responsible for:
+
+- reading `data/products.csv`
+- mapping legacy CSV column names to the canonical English schema
+- opening the target login page
+- authenticating using `LOGIN_EMAIL` and `LOGIN_PASSWORD`
+- submitting products one by one
+- confirming submission through DOM and `localStorage` evidence
+- using JavaScript fallback insertion when necessary
+- saving reports and evidence files in `logs/`
+
+#### `dashboard.py`
+
+Streamlit application for monitoring:
+
+- total runs and processed records
+- success rate and critical failures
+- run trend and status composition
+- brand/category analysis
+- failure investigation queue
+- filtered CSV exports
+
+#### `scripts/summarize_run.py`
+
+Creates:
+
+- `logs/run_summary.json`
+- `logs/run_summary.md`
+
+It also exports GitHub Actions step outputs when `GITHUB_OUTPUT` is available.
+
+#### `scripts/update_history.py`
+
+Upserts a single run into `analytics/history_runs.csv` using `github_run_id` as the preferred idempotent key when available.
+
+#### `scripts/update_detailed_history.py`
+
+Upserts the detailed report rows from the latest execution into `analytics/detailed_runs.csv`.
+
+### 16.2 Key non-Python runtime files
+
+- `data/products.csv`: canonical input dataset
+- `analytics/history_runs.csv`: consolidated run history
+- `analytics/detailed_runs.csv`: consolidated record-level history
+- `web_page/exclusive_page/login.html`: login page targeted by Selenium
+- `web_page/exclusive_page/products.html`: product form and table page targeted by Selenium
+- `web_page/exclusive_page/index.html`: redirect entry point for local serving and GitHub Pages
+
+---
+
+## 17. GitHub Actions Manual Input Reference
+
+The `Registration Web (Cloud)` workflow exposes the following `workflow_dispatch` inputs:
+
+| Input | Default | Meaning |
+|---|---:|---|
+| `target_site` | `local_runner` | Choose whether the workflow uses the runner-hosted local site or the published GitHub Pages site |
+| `max_records` | `0` | Limit the number of processed rows (`0 = all`) |
+| `record_offset` | `0` | Skip the first N rows |
+| `submission_confirmation_timeout` | `6` | Max seconds to wait for evidence after each submit |
+| `max_wait_without_evidence` | `2.5` | Early fallback threshold before normal timeout completes |
+| `partial_report_every` | `10` | Save partial CSV every N records |
+| `partial_html_every` | `25` | Save partial HTML every N records |
+| `save_final_html` | `1` | Save final HTML evidence |
+| `save_final_pdf` | `0` | Save final PDF evidence |
+
+### 17.1 Cloud target behavior
+
+When `target_site=local_runner`:
+
+- the workflow starts a local static server in the GitHub runner
+- it validates `http://127.0.0.1:8000/login.html`
+
+When `target_site=github_pages`:
+
+- the workflow validates `https://danyellambert.github.io/web-registration-automation/login.html`
+- the automation points `LOGIN_URL` to the public site
+
+### 17.2 Artifact upload behavior
+
+The workflow uploads a single artifact bundle named:
+
+- `logs-registration-web-${github.run_id}`
+
+Retention:
+
+- `14` days
+
+Included files:
+
+- `logs/*.csv`
+- `logs/*.html`
+- `logs/*.pdf`
+- `logs/run_summary.json`
+- `logs/run_summary.md`
+- `analytics/history_runs.csv`
+- `analytics/detailed_runs.csv`
+
+---
+
+## 18. Execution Status Semantics
+
+The runtime uses the following per-record `execution_status` values:
+
+| Status | Meaning | Operational interpretation |
+|---|---|---|
+| `ok` | Submission was confirmed through expected evidence | fully successful record |
+| `partial_success` | Partial confirmation exists, but not through the strongest evidence path | review if recurring |
+| `not_confirmed` | Submission could not be confirmed with available evidence | considered a critical failure candidate |
+| `error` | Automation failed due to exception/runtime issue | hard failure |
+
+### 18.1 Critical failures
+
+For run summaries and dashboard KPIs, `critical_failures` is derived from:
+
+- `not_confirmed`
+- `error`
+
+---
+
+## 19. Analytics Dataset Reference
+
+### 19.1 `analytics/history_runs.csv`
+
+Run-level history stores consolidated metadata such as:
+
+- `history_updated_at_utc`
+- `run_id`
+- `run_datetime`
+- `report_file`
+- `total`
+- `ok`
+- `partial_success`
+- `not_confirmed`
+- `error`
+- `other_statuses`
+- `critical_failures`
+- `success_rate`
+- `github_run_id`
+- `github_run_number`
+- `github_run_attempt`
+- `repository`
+- `ref_name`
+- `actor`
+- `event_name`
+- `run_url`
+
+### 19.2 `analytics/detailed_runs.csv`
+
+Detailed history stores every processed row plus execution metadata, including:
+
+- canonical product fields
+- `execution_status`
+- `detail`
+- `run_id`
+- `run_datetime`
+- `report_file`
+- `github_run_id`
+- `history_updated_at_utc`
+
+### 19.3 How history updates happen
+
+In GitHub Actions:
+
+1. `summarize_run.py` generates summary files
+2. `update_history.py` updates run-level history
+3. `update_detailed_history.py` updates detailed history
+4. workflow attempts to commit/push `analytics/*.csv`
+
+---
+
+## 20. Dashboard Feature Map
+
+### 20.1 Data loading priority
+
+`dashboard.py` loads data in this order:
+
+1. local reports from `logs/`
+2. `analytics/detailed_runs.csv`
+3. remote fallback URLs from environment variables
+
+### 20.2 Sidebar controls
+
+The dashboard currently supports:
+
+- manual refresh button
+- optional auto-refresh toggle
+- period/date range filter
+- free-text search by code/brand
+- brand multi-select filter
+- event type multi-select filter (history only)
+- SLA target slider
+
+### 20.3 Visual sections
+
+The dashboard currently renders:
+
+- KPI summary row
+- SLA gauge
+- success trend line chart
+- status composition pie chart
+- brand efficiency bar chart
+- category/status heatmap
+- consolidated run history table
+- failure investigation queue
+- filtered detailed dataset table and CSV download
+
+---
+
+## 21. Validation and Release Checklist
+
+Recommended validation flow after significant changes:
+
+1. validate static target locally
+
+   ```bash
+   python -m http.server 8000 --directory web_page/exclusive_page
+   ```
+
+2. run local smoke automation
+
+   ```bash
+   MAX_RECORDS=5 HEADLESS=0 KEEP_OPEN=1 python registration_web.py
+   ```
+
+3. validate syntax
+
+   ```bash
+   python -m py_compile registration_web.py dashboard.py scripts/*.py
+   ```
+
+4. open dashboard and review recent run data
+
+   ```bash
+   streamlit run dashboard.py
+   ```
+
+5. if the change affects cloud execution, run the GitHub Actions workflow manually
+
+6. if the change affects the static site, confirm GitHub Pages deployment updated successfully
+
+---
+
+## 22. Customization Guide
+
+Common customization points:
+
+### 22.1 Branding
+
+- application name in `login.html` / `index.html`
+- logo file at `web_page/exclusive_page/assets/main_logo.webp`
+- footer signature text in `login.html` and `products.html`
+
+### 22.2 Target environment
+
+- local runtime target through `LOGIN_URL`
+- cloud runtime target through workflow `target_site`
+
+### 22.3 Processing behavior
+
+- control subset size with `MAX_RECORDS` / `RECORD_OFFSET`
+- tune timing with `SUBMISSION_CONFIRMATION_TIMEOUT` and `MAX_WAIT_WITHOUT_EVIDENCE`
+- enable or disable evidence files with `SAVE_FINAL_HTML` / `SAVE_FINAL_PDF`
+
+### 22.4 Dashboard behavior
+
+- tune cache with `DASHBOARD_CACHE_TTL`
+- provide remote fallbacks with `HISTORY_REMOTE_URL` and `DETAILED_REMOTE_URL`
+
+---
+
+## 23. Known Limitations and Non-Goals
+
+Current limitations:
+
+- no formal automated test suite yet
+- persistence is file-based (CSV), not database-backed
+- the target web interface is a static front-end with client-side persistence only
+- selector drift in the target page may still require manual maintenance
+
+Non-goals in the current implementation:
+
+- multi-user authentication backend
+- server-side API integration for product persistence
+- centralized production database
+- enterprise-grade alerting stack out of the box
+
+---
+
+## 24. Why This Repository Is Operationally Useful
+
+This repository is intentionally structured to show more than a simple Selenium script. It demonstrates:
+
+- automated UI interaction
+- recoverability and fallback design
+- run evidence generation
+- historical analytics maintenance
+- cloud workflow orchestration
+- dashboard-driven observability
+- documentation for architecture and operations
+
+That makes it useful both as an operational automation project and as a portfolio-grade engineering artifact.

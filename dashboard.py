@@ -41,6 +41,28 @@ CACHE_TTL_SECONDS = _positive_int_env("DASHBOARD_CACHE_TTL", 60)
 REPORT_PATTERNS = ["registration_report_*.csv", "relatorio_cadastro_*.csv"]
 STATUS_ORDER = ["ok", "partial_success", "not_confirmed", "error"]
 
+DETAILED_LEGACY_COLUMN_ALIASES = {
+    "indice_csv": "row_index",
+    "codigo": "product_code",
+    "marca": "brand",
+    "tipo": "product_type",
+    "categoria": "category",
+    "preco_unitario": "unit_price",
+    "preco": "unit_price",
+    "custo": "cost",
+    "obs": "notes",
+    "status_execucao": "execution_status",
+    "detalhe": "detail",
+}
+
+HISTORY_LEGACY_COLUMN_ALIASES = {
+    "ok_parcial": "partial_success",
+    "nao_confirmado": "not_confirmed",
+    "erro": "error",
+    "outros_status": "other_statuses",
+    "falhas_criticas": "critical_failures",
+}
+
 BASE_COLUMNS = [
     "row_index",
     "product_code",
@@ -53,6 +75,38 @@ BASE_COLUMNS = [
     "execution_status",
     "detail",
 ]
+
+DETAILED_VIEW_COLUMNS = [
+    "run_datetime",
+    "run_id",
+    "source_file",
+    "row_index",
+    "product_code",
+    "brand",
+    "product_type",
+    "category",
+    "unit_price",
+    "cost",
+    "notes",
+    "execution_status",
+    "detail",
+]
+
+DETAILED_VIEW_RENAME = {
+    "run_datetime": "Run Datetime",
+    "run_id": "Run ID",
+    "source_file": "Source File",
+    "row_index": "Row Index",
+    "product_code": "Product Code",
+    "brand": "Brand",
+    "product_type": "Product Type",
+    "category": "Category",
+    "unit_price": "Unit Price",
+    "cost": "Cost",
+    "notes": "Notes",
+    "execution_status": "Execution Status",
+    "detail": "Detail",
+}
 
 HISTORY_COLUMNS = [
     "history_updated_at_utc",
@@ -76,6 +130,29 @@ HISTORY_COLUMNS = [
     "event_name",
     "run_url",
 ]
+
+
+def _missing_mask(series: pd.Series) -> pd.Series:
+    mask = series.isna()
+    if pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series):
+        mask = mask | series.astype(str).str.strip().eq("")
+    return mask
+
+
+def backfill_legacy_columns(
+    df: pd.DataFrame,
+    aliases: dict[str, str],
+) -> pd.DataFrame:
+    for legacy_name, canonical_name in aliases.items():
+        if canonical_name not in df.columns:
+            df[canonical_name] = pd.NA
+        if legacy_name not in df.columns:
+            continue
+
+        mask = _missing_mask(df[canonical_name])
+        df.loc[mask, canonical_name] = df.loc[mask, legacy_name]
+
+    return df
 
 
 def extract_run_info_from_filename(filename: str) -> tuple[str, pd.Timestamp]:
@@ -111,6 +188,8 @@ def load_reports(log_dir: str) -> pd.DataFrame:
             df = pd.read_csv(file_path)
         except Exception:
             continue
+
+        df = backfill_legacy_columns(df, DETAILED_LEGACY_COLUMN_ALIASES)
 
         for column in BASE_COLUMNS:
             if column not in df.columns:
@@ -158,6 +237,8 @@ def load_cloud_detailed_data(detailed_csv: str, detailed_remote_url: str = "") -
 
     if detailed.empty:
         return pd.DataFrame()
+
+    detailed = backfill_legacy_columns(detailed, DETAILED_LEGACY_COLUMN_ALIASES)
 
     for column in BASE_COLUMNS:
         if column not in detailed.columns:
@@ -223,6 +304,8 @@ def load_history(history_csv: str, history_remote_url: str = "") -> pd.DataFrame
     if history.empty:
         return pd.DataFrame()
 
+    history = backfill_legacy_columns(history, HISTORY_LEGACY_COLUMN_ALIASES)
+
     for column in HISTORY_COLUMNS:
         if column not in history.columns:
             history[column] = pd.NA
@@ -270,6 +353,12 @@ def normalize_date_range(
 
 def format_whole_number(value: float | int) -> str:
     return f"{value:,.0f}".replace(",", ".")
+
+
+def build_detailed_display_view(detailed: pd.DataFrame) -> pd.DataFrame:
+    available_columns = [column for column in DETAILED_VIEW_COLUMNS if column in detailed.columns]
+    view = detailed[available_columns].copy()
+    return view.rename(columns=DETAILED_VIEW_RENAME)
 
 
 def build_sla_gauge(success_rate: float, target: float) -> go.Figure:
@@ -646,12 +735,13 @@ def main() -> None:
         detailed_view = detailed.sort_values(
             ["run_datetime", "row_index"], ascending=[False, True]
         ).reset_index(drop=True)
-        st.dataframe(detailed_view, use_container_width=True, hide_index=True)
+        detailed_display_view = build_detailed_display_view(detailed_view)
+        st.dataframe(detailed_display_view, use_container_width=True, hide_index=True)
 
         csv_filename = f"dashboard_detailed_{datetime.now():%Y%m%d_%H%M%S}.csv"
         st.download_button(
             label="⬇️ Download filtered detailed dataset",
-            data=detailed_view.to_csv(index=False, encoding="utf-8-sig"),
+            data=detailed_display_view.to_csv(index=False, encoding="utf-8-sig"),
             file_name=csv_filename,
             mime="text/csv",
             use_container_width=True,

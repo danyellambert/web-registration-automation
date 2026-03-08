@@ -201,3 +201,178 @@ curl -I http://127.0.0.1:8000/login.html
 
 - check workflow status: **Deploy web_page to GitHub Pages**
 - confirm your commit changed files under `web_page/exclusive_page/**`
+
+---
+
+## 10. HTML Structure Reference
+
+### 10.1 `login.html`
+
+Main elements used by the automation:
+
+- email field: `id="email"`, `name="email"`
+- password field: `id="password"`, `name="password"`
+- submit button: `id="pgtpy-botao"`
+
+Main user-facing sections:
+
+- title block: `RegFlow Platform`
+- subtitle: `Sign in to continue`
+- footer with logo and signature text
+
+### 10.2 `products.html`
+
+Main elements used by the automation:
+
+- `product_code`
+- `brand`
+- `product_type`
+- `category`
+- `unit_price`
+- `cost`
+- `notes`
+- submit button: `id="pgtpy-botao"`
+- clear button: `id="pgtpy-botao-limpar"`
+
+Rendered output sections:
+
+- product registration form
+- registered products table
+- footer with logo and signature text
+
+### 10.3 `index.html`
+
+Behavior:
+
+- sets `<title>RegFlow Platform</title>`
+- redirects immediately to `login.html`
+
+---
+
+## 11. Client-Side Behavior Reference
+
+### 11.1 Login page behavior
+
+`login.html` performs:
+
+- required-field validation on all inputs
+- inline error messages using `<small>` elements
+- redirect to `products.html` when validation passes
+
+### 11.2 Products page behavior
+
+`products.html` performs:
+
+- required validation on all fields except `notes`
+- local table rendering through DOM insertion
+- product persistence to `localStorage`
+- restore-on-load from `localStorage`
+- full clear/reset through the **Clear** button
+
+### 11.3 Storage contract
+
+The page currently stores registered products using:
+
+- `localStorage` key: `productList`
+
+Stored format:
+
+- array of arrays, ordered as:
+  1. `product_code`
+  2. `brand`
+  3. `product_type`
+  4. `category`
+  5. `unit_price`
+  6. `cost`
+  7. `notes`
+
+This is important because `registration_web.py` reads this structure as one of the submission evidence sources.
+
+---
+
+## 12. Asset Reference
+
+### 12.1 Shared assets
+
+- `assets/main_logo.webp`: platform logo used for favicon, touch icon, and footer branding
+
+### 12.2 Login page assets
+
+- `login_assets/main_styles.css`
+- `login_assets/main_app.js`
+- `login_assets/app_chunk_a.js`
+- `login_assets/app_chunk_b.js`
+- `login_assets/webfont.9f87595f89.js`
+- `login_assets/jquery-3.5.1.min.dc5e7f18c8.55a31caff3.js`
+
+### 12.3 Products page assets
+
+- `products_assets/main_styles.css`
+- `products_assets/main_app.js`
+- `products_assets/app_chunk_a.js`
+- `products_assets/app_chunk_b.js`
+- `products_assets/webfont.9f87595f89.js`
+- `products_assets/jquery-3.5.1.min.dc5e7f18c8.55a31caff3.js`
+
+---
+
+## 13. Selector Stability Notes
+
+The Selenium runtime depends on the stability of the current UI identifiers and structure. In practice, the following should be treated as automation contracts:
+
+- login input IDs/names
+- product form field IDs/names
+- submit button `id="pgtpy-botao"`
+- product table structure under `.pgtpy-container-tabela`
+- `localStorage` key `productList`
+
+If any of these change, the automation may still work through fallback selectors, but `registration_web.py` should be reviewed and updated intentionally.
+
+---
+
+## 14. Local Verification Checklist
+
+After changing this front-end, validate at least the following:
+
+1. start the static server
+
+   ```bash
+   python -m http.server 8000 --directory web_page/exclusive_page
+   ```
+
+2. open `login.html` and confirm:
+   - branding appears correctly
+   - login validation works
+   - redirection to `products.html` works
+
+3. open `products.html` and confirm:
+   - all fields are visible
+   - a new row appears after submit
+   - `Clear` removes stored rows
+
+4. run automation smoke test from project root:
+
+   ```bash
+   MAX_RECORDS=5 HEADLESS=0 KEEP_OPEN=1 python registration_web.py
+   ```
+
+---
+
+## 15. Relationship with the Rest of the Repository
+
+This front-end is directly connected to the rest of the project in the following ways:
+
+- `registration_web.py` automates it
+- `.github/workflows/registration-web.yml` can serve it locally in the GitHub runner
+- `.github/workflows/deploy-web-page.yml` publishes it to GitHub Pages
+- `README.md` documents it at repository level
+- `docs/ARCHITECTURE.md` and `docs/OPERATIONS.md` reference it as the target interface
+
+---
+
+## 16. Known Limitations
+
+- there is no backend persistence; storage is browser-local only
+- login is simulated client-side and does not authenticate against a server
+- product data is not shared across browsers/devices unless automation captures it into CSV history
+- the page is intended as a controlled automation target, not as a production web application backend
