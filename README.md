@@ -1,41 +1,112 @@
-# Web Registration Automation
+# Web Registration Automation (RegFlow Platform)
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.55-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![Selenium](https://img.shields.io/badge/Selenium-4.41-43B02A?logo=selenium&logoColor=white)](https://www.selenium.dev/)
-[![Workflow](https://img.shields.io/badge/GitHub%20Actions-Enabled-2088FF?logo=githubactions&logoColor=white)](./.github/workflows/registration-web.yml)
+[![Registration Workflow](https://img.shields.io/badge/GitHub%20Actions-Registration%20Web-2088FF?logo=githubactions&logoColor=white)](.github/workflows/registration-web.yml)
 
-Production-grade product registration automation with cloud orchestration, historical analytics, and executive observability.
+Production-ready product registration automation with Selenium, GitHub Actions orchestration, historical analytics consolidation, and an executive Streamlit dashboard.
 
 **Live dashboard:** https://web-registration-automation-dashboard.streamlit.app/
 
 ---
 
-## Overview
+## Table of Contents
 
-This project automates product registration in a web application using Selenium, executes reliably in GitHub Actions, consolidates analytics across runs, and exposes operational KPIs in Streamlit.
-
-It is designed to be both:
-
-- **practical for day-to-day operations** (manual/scheduled execution, optional notifications, artifacts)
-- **structured for corporate environments** (historical traceability, failure visibility, reproducible workflows)
-
----
-
-## Key Capabilities
-
-- Resilient browser automation (`registration_web.py`)
-- Manual and scheduled cloud execution (`registration-web.yml`)
-- Run summary generation (`scripts/summarize_run.py`)
-- Consolidated run-level history (`analytics/history_runs.csv`)
-- Consolidated record-level detailed history (`analytics/detailed_runs.csv`)
-- Executive dashboard with cloud fallback support (`dashboard.py`)
+- [1. Project Overview](#1-project-overview)
+- [2. Core Capabilities](#2-core-capabilities)
+- [3. Repository Structure](#3-repository-structure)
+- [4. Prerequisites](#4-prerequisites)
+- [5. Local Quick Start](#5-local-quick-start)
+- [6. Input Dataset Contract (`data/products.csv`)](#6-input-dataset-contract-dataproductscsv)
+- [7. Runtime Environment Variables](#7-runtime-environment-variables)
+- [8. GitHub Actions Workflows](#8-github-actions-workflows)
+- [9. Outputs and Artifacts](#9-outputs-and-artifacts)
+- [10. Dashboard Usage](#10-dashboard-usage)
+- [11. Troubleshooting](#11-troubleshooting)
+- [12. Security and Operations](#12-security-and-operations)
+- [13. Additional Documentation](#13-additional-documentation)
+- [14. Contribution Guidelines](#14-contribution-guidelines)
 
 ---
 
-## Quick Start
+## 1. Project Overview
 
-### 1) Install dependencies
+This project automates product registration into a web interface (RegFlow Platform), captures execution evidence, maintains consolidated historical datasets, and exposes operational intelligence through dashboards.
+
+High-level flow:
+
+1. Read records from `data/products.csv`
+2. Log in to the target web page
+3. Fill and submit each product row
+4. Confirm submission using multiple evidence channels
+5. Persist reports and run summaries in `logs/`
+6. Update historical analytics in `analytics/`
+7. Visualize KPIs and trends in `dashboard.py`
+
+---
+
+## 2. Core Capabilities
+
+- Selector-based Selenium automation (`registration_web.py`)
+- Local and cloud execution modes (GitHub Actions)
+- Automatic local static site startup when needed
+- Multi-signal submission confirmation (`DOM` + `localStorage`)
+- JavaScript fallback insertion for unstable frontend behavior
+- Incremental report/HTML persistence during long runs
+- Consolidated run-level and record-level analytics
+- Executive, operational, and quality monitoring in Streamlit
+
+---
+
+## 3. Repository Structure
+
+```text
+.
+├── registration_web.py
+├── dashboard.py
+├── requirements.txt
+├── data/
+│   └── products.csv
+├── logs/                          # generated run artifacts
+├── analytics/
+│   ├── history_runs.csv
+│   └── detailed_runs.csv
+├── scripts/
+│   ├── summarize_run.py
+│   ├── update_history.py
+│   └── update_detailed_history.py
+├── docs/
+│   ├── ARCHITECTURE.md
+│   └── OPERATIONS.md
+└── web_page/
+    └── exclusive_page/
+        ├── index.html
+        ├── login.html
+        ├── products.html
+        └── README_EXCLUSIVE_PAGE.md
+```
+
+---
+
+## 4. Prerequisites
+
+### Local
+
+- Python 3.11+
+- Google Chrome installed
+- macOS/Linux shell (examples use `zsh`/`bash` style)
+
+### Cloud
+
+- GitHub repository with Actions enabled
+- Required secrets configured (`LOGIN_EMAIL`, `LOGIN_PASSWORD`)
+
+---
+
+## 5. Local Quick Start
+
+### 5.1 Install dependencies
 
 ```bash
 python -m venv .venv
@@ -44,43 +115,50 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 2) Configure local credentials
+### 5.2 Configure credentials
 
 ```bash
 export LOGIN_EMAIL="your-user@example.com"
 export LOGIN_PASSWORD="your-password"
 ```
 
-Legacy compatibility: `LOGIN_SENHA` is still supported as a fallback.
+Compatibility fallback:
 
-### 3) Run automation
+- `LOGIN_SENHA` is still accepted if `LOGIN_PASSWORD` is not set.
+
+### 5.3 Run automation
 
 ```bash
 python registration_web.py
 ```
 
-By default, `LOGIN_URL` points to `http://127.0.0.1:8000/login.html`. If this local
-site is not running, `registration_web.py` now auto-starts a temporary server using
-`web_page/exclusive_page`.
+Default target URL:
 
-### 4) Run dashboard
+- `http://127.0.0.1:8000/login.html`
+
+If the local site is offline and `AUTO_START_LOCAL_SITE=1`, the runtime automatically tries to start:
+
+```bash
+python -m http.server 8000 --directory web_page/exclusive_page
+```
+
+### 5.4 Run dashboard
 
 ```bash
 streamlit run dashboard.py
 ```
 
+### 5.5 Recommended local smoke test
+
+```bash
+MAX_RECORDS=5 HEADLESS=0 KEEP_OPEN=1 python registration_web.py
+```
+
 ---
 
-## Data Source
+## 6. Input Dataset Contract (`data/products.csv`)
 
-Input dataset path:
-
-- `data/products.csv` (primary)
-
-`registration_web.py` accepts the canonical English dataset schema and keeps
-alias-mapping support for legacy Portuguese column names.
-
-Required columns:
+Canonical required columns:
 
 - `product_code`
 - `brand`
@@ -90,98 +168,218 @@ Required columns:
 - `cost`
 - `notes`
 
----
+Legacy column aliases still mapped automatically at runtime:
 
-## Main Runtime Variables (Automation)
+- `codigo` -> `product_code`
+- `marca` -> `brand`
+- `tipo` -> `product_type`
+- `categoria` -> `category`
+- `preco_unitario` / `preco` -> `unit_price`
+- `custo` -> `cost`
+- `obs` -> `notes`
 
-| Variable | Default | Description | Legacy alias (still supported) |
-|---|---:|---|---|
-| `LOGIN_URL` | `http://127.0.0.1:8000/login.html` | Target login URL |
-| `LOGIN_EMAIL` | `your-user@example.com` | Target system login user | — |
-| `LOGIN_PASSWORD` | `your-password` | Target system login password | `LOGIN_SENHA` |
-| `AUTO_START_LOCAL_SITE` | `1` | Auto-start local static site if `LOGIN_URL` is local and offline | — |
-| `LOCAL_SITE_START_TIMEOUT` | `8` | Max seconds waiting local site auto-start | — |
-| `HEADLESS` | `0` | Run in headless mode (`1`/`0`) | — |
-| `KEEP_OPEN` | `1` | Keep browser open in local visual mode | — |
-| `MAX_RECORDS` | `0` | Maximum rows to process (`0` = all) | `LIMITE_REGISTROS` |
-| `RECORD_OFFSET` | `0` | Skip first N rows | `OFFSET_REGISTROS` |
-| `GENERATE_REPORT` | `1` | Generate run CSV report | `GERAR_RELATORIO` |
-| `SAVE_FINAL_HTML` | `1` | Save final HTML evidence | `SALVAR_HTML_FINAL` |
-| `SAVE_FINAL_PDF` | `0` | Save final PDF evidence | `SALVAR_PDF_FINAL` |
-| `SUBMISSION_CONFIRMATION_TIMEOUT` | `6` | Max confirmation wait time per submission | `TEMPO_CONFIRMACAO_ENVIO` |
-| `MAX_WAIT_WITHOUT_EVIDENCE` | `2.5` | Early fallback threshold | `TEMPO_MAX_ESPERA_SEM_EVIDENCIA` |
-| `PARTIAL_REPORT_EVERY` | `10` | Partial CSV persistence frequency | `RELATORIO_PARCIAL_CADA` |
-| `PARTIAL_HTML_EVERY` | `25` | Partial HTML persistence frequency | `HTML_PARCIAL_CADA` |
+If `notes` is missing, it is created as an empty column.
 
 ---
 
-## Dashboard Variables
+## 7. Runtime Environment Variables
+
+### 7.1 Automation (`registration_web.py`)
 
 | Variable | Default | Description |
 |---|---:|---|
-| `HISTORY_REMOTE_URL` | empty | Optional remote history CSV fallback |
-| `DETAILED_REMOTE_URL` | empty | Optional remote detailed CSV fallback |
-| `DASHBOARD_CACHE_TTL` | `60` | Streamlit cache TTL in seconds |
+| `LOGIN_URL` | `http://127.0.0.1:8000/login.html` | Target login URL |
+| `LOGIN_EMAIL` | `your-user@example.com` | Login username/email |
+| `LOGIN_PASSWORD` | `your-password` | Login password |
+| `LOGIN_SENHA` | — | Legacy password alias fallback |
+| `HEADLESS` | `0` | Headless browser mode (`1/0`) |
+| `KEEP_OPEN` | `1` | Keep browser open in visual local mode |
+| `MAX_RECORDS` | `0` | Max records to process (`0 = all`) |
+| `RECORD_OFFSET` | `0` | Skip first N input records |
+| `GENERATE_REPORT` | `1` | Persist report CSV |
+| `SAVE_FINAL_HTML` | `1` | Persist final HTML evidence |
+| `SAVE_FINAL_PDF` | `0` | Persist final PDF evidence |
+| `SUBMISSION_CONFIRMATION_TIMEOUT` | `6.0` | Max per-record confirmation wait (seconds) |
+| `MAX_WAIT_WITHOUT_EVIDENCE` | `2.5` | Early no-evidence threshold (seconds) |
+| `PARTIAL_REPORT_EVERY` | `10` | Save partial report every N records |
+| `PARTIAL_HTML_EVERY` | `25` | Save partial HTML every N records (`0` disables partial HTML saves) |
+| `AUTO_START_LOCAL_SITE` | `1` | Auto-start local static site when needed |
+| `LOCAL_SITE_START_TIMEOUT` | `8.0` | Auto-start timeout (seconds) |
+
+`execution_status` values:
+
+- `ok`
+- `partial_success`
+- `not_confirmed`
+- `error`
+
+### 7.2 Dashboard (`dashboard.py`)
+
+| Variable | Default | Description |
+|---|---:|---|
+| `HISTORY_REMOTE_URL` | empty | Optional remote fallback URL for `history_runs.csv` |
+| `DETAILED_REMOTE_URL` | empty | Optional remote fallback URL for `detailed_runs.csv` |
+| `DASHBOARD_CACHE_TTL` | `60` | Streamlit cache TTL (seconds) |
 
 ---
 
-## Outputs and Artifacts
+## 8. GitHub Actions Workflows
 
-Generated during execution:
+### 8.1 Registration workflow
+
+File:
+
+- `.github/workflows/registration-web.yml`
+
+Triggers:
+
+- `workflow_dispatch` (manual)
+- `schedule` (`0 11 * * *`) with optional gate
+
+Schedule gate variable:
+
+- `ENABLE_REGISTRATION_SCHEDULE=true`
+
+Manual inputs include:
+
+- `target_site` (`local_runner` or `github_pages`)
+- `max_records`, `record_offset`
+- `submission_confirmation_timeout`, `max_wait_without_evidence`
+- `partial_report_every`, `partial_html_every`
+- `save_final_html`, `save_final_pdf`
+
+Required secrets:
+
+- `LOGIN_EMAIL`
+- `LOGIN_PASSWORD` (or `LOGIN_SENHA` fallback)
+
+Optional SMTP/email secrets:
+
+- `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `EMAIL_TO`, `EMAIL_FROM`
+
+### 8.2 Web page deployment workflow
+
+File:
+
+- `.github/workflows/deploy-web-page.yml`
+
+Deploy trigger:
+
+- push to `main` with changes in `web_page/exclusive_page/**`
+
+Published URL:
+
+- https://danyellambert.github.io/web-registration-automation/
+
+---
+
+## 9. Outputs and Artifacts
+
+Generated by automation:
 
 - `logs/registration_report_YYYYMMDD_HHMMSS.csv`
 - `logs/final_page_YYYYMMDD_HHMMSS.html` (optional)
 - `logs/final_page_YYYYMMDD_HHMMSS.pdf` (optional)
 - `logs/run_summary.json`
 - `logs/run_summary.md`
-- `analytics/history_runs.csv`
-- `analytics/detailed_runs.csv`
 
-Legacy report names (`relatorio_cadastro_*`, `pagina_final_*`) are still recognized
-for backward compatibility.
+Consolidated analytics:
 
----
+- `analytics/history_runs.csv` (run-level)
+- `analytics/detailed_runs.csv` (record-level)
 
-## Cloud Workflow
+Legacy report names are still recognized by summary/dashboard logic:
 
-Workflow file:
-
-- `.github/workflows/registration-web.yml`
-
-Trigger modes:
-
-1. `workflow_dispatch` (manual with inputs)
-2. `schedule` (cron)
-
-Optional schedule enablement variable:
-
-- `ENABLE_REGISTRATION_SCHEDULE=true`
-
-Required secrets:
-
-- `LOGIN_EMAIL`
-- `LOGIN_PASSWORD` (or `LOGIN_SENHA` for backward compatibility)
-
-Optional email secrets:
-
-- `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `EMAIL_TO`, `EMAIL_FROM`
+- `logs/relatorio_cadastro_*.csv`
 
 ---
 
-## Documentation
+## 10. Dashboard Usage
 
-For complete enterprise documentation, see:
+`dashboard.py` provides:
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+- Executive KPIs (runs, volume, success rate, critical failures)
+- SLA success gauge
+- Success trend by run
+- Status composition
+- Efficiency by brand and category/status heatmap
+- Failure investigation queue (`error`, `not_confirmed`, `partial_success`)
+- Filtered CSV export
+
+Data loading order:
+
+1. Local `logs/` reports
+2. `analytics/detailed_runs.csv`
+3. Remote URLs (`*_REMOTE_URL`) when configured
 
 ---
 
-## Contribution
+## 11. Troubleshooting
+
+### 11.1 `ERR_CONNECTION_REFUSED` against local login URL
+
+Start the static site manually:
+
+```bash
+python -m http.server 8000 --directory web_page/exclusive_page
+```
+
+Then retry automation.
+
+### 11.2 Frontend text/style changes not visible
+
+Use a hard refresh (browser cache issue):
+
+- macOS + Chrome: `Cmd + Shift + R`
+
+### 11.3 High `not_confirmed` volume
+
+- Increase `SUBMISSION_CONFIRMATION_TIMEOUT` gradually
+- Inspect `logs/final_page_*.html`
+- Review `detail` column in the report CSV
+
+### 11.4 Empty dashboard
+
+- Check whether `logs/registration_report_*.csv` or `analytics/*.csv` exist
+- Confirm latest commits include analytics updates
+- Validate remote URL environment variables when using cloud fallback
+
+---
+
+## 12. Security and Operations
+
+- Never hardcode credentials
+- Use GitHub Secrets in cloud runs
+- Keep workflow write permissions properly configured (`contents: write`)
+- Rotate credentials periodically
+- Restrict repository write/admin access
+
+---
+
+## 13. Additional Documentation
+
+- Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Operations runbook: [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+- Web page front-end guide: [`web_page/exclusive_page/README_EXCLUSIVE_PAGE.md`](web_page/exclusive_page/README_EXCLUSIVE_PAGE.md)
+
+---
+
+## 14. Contribution Guidelines
 
 Recommended commit prefixes:
 
 - `feat:` feature
-- `fix:` bugfix
+- `fix:` bug fix
 - `chore:` maintenance
 - `docs:` documentation
+
+Recommended pre-PR checks:
+
+1. Local smoke run (`MAX_RECORDS=5`)
+2. Syntax validation:
+
+   ```bash
+   python -m py_compile registration_web.py dashboard.py scripts/*.py
+   ```
+
+3. Update docs whenever runtime behavior, workflow behavior, or operational controls change.

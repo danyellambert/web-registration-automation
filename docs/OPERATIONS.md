@@ -12,8 +12,8 @@ This runbook defines how to operate, monitor, and troubleshoot the web registrat
 
 Use when:
 
-- validating selector changes
-- debugging registration behavior
+- validating selector behavior
+- debugging registration issues
 - testing small record subsets
 
 Command:
@@ -26,19 +26,19 @@ python registration_web.py
 
 Use when:
 
-- requiring auditable run context
+- requiring an auditable run context
 - sharing artifacts with stakeholders
 - executing with controlled runtime inputs
 
-Trigger:
+Trigger path:
 
-- GitHub Actions → `Registration Web (Cloud)` → `Run workflow`
+- GitHub Actions -> `Registration Web (Cloud)` -> `Run workflow`
 
 ### 2.3 Cloud Scheduled Run
 
 Use when:
 
-- recurring execution is required (for example, nightly)
+- recurring execution is required (for example, daily)
 
 Enablement control:
 
@@ -48,13 +48,13 @@ Enablement control:
 
 ## 3. Pre-Run Checklist
 
-Before execution, validate:
+Before each run, verify:
 
-1. `LOGIN_EMAIL` and `LOGIN_PASSWORD` configured (`LOGIN_SENHA` also supported)
-2. input file available at `data/products.csv`
-3. file schema includes required columns
-4. Chrome dependency is available (local)
-5. workflow permissions allow committing analytics files (cloud)
+1. `LOGIN_EMAIL` and `LOGIN_PASSWORD` are configured (`LOGIN_SENHA` fallback is also accepted)
+2. input file exists at `data/products.csv`
+3. input schema contains required columns
+4. Chrome dependency is available (local mode)
+5. workflow has write permission for analytics updates (cloud mode)
 
 ---
 
@@ -71,15 +71,14 @@ Primary controls:
 - `PARTIAL_REPORT_EVERY`
 - `PARTIAL_HTML_EVERY`
 
-Legacy aliases are still accepted for backward compatibility:
+Legacy aliases still accepted for compatibility:
 
-- `LIMITE_REGISTROS`, `OFFSET_REGISTROS`
-- `TEMPO_CONFIRMACAO_ENVIO`, `TEMPO_MAX_ESPERA_SEM_EVIDENCIA`
-- `RELATORIO_PARCIAL_CADA`, `HTML_PARCIAL_CADA`
+- `LOGIN_SENHA` (password alias)
+- report naming: `relatorio_cadastro_*.csv` (read compatibility)
 
 Recommended operational presets:
 
-### 4.1 Debug preset
+### 4.1 Local debug preset
 
 - `HEADLESS=0`
 - `KEEP_OPEN=1`
@@ -93,7 +92,7 @@ Recommended operational presets:
 
 ---
 
-## 5. Expected Outputs per Run
+## 5. Expected Outputs Per Run
 
 Operationally relevant outputs:
 
@@ -108,17 +107,9 @@ Consolidated historical datasets:
 - `analytics/history_runs.csv`
 - `analytics/detailed_runs.csv`
 
-Legacy artifact names are still recognized:
-
-- `logs/relatorio_cadastro_*.csv`
-- `logs/pagina_final_*.html`
-- `logs/pagina_final_*.pdf`
-
 ---
 
-## 6. SLOs and Service Objectives (Suggested)
-
-Practical initial targets for corporate operation:
+## 6. Suggested SLOs
 
 ### 6.1 Reliability SLO
 
@@ -134,25 +125,25 @@ Practical initial targets for corporate operation:
 
 ### 6.4 Dashboard Freshness SLO
 
-- dashboard data no older than 24h for daily schedule
+- dashboard data no older than 24h for daily schedules
 
 ---
 
 ## 7. Monitoring and Health Review
 
-### 7.1 Daily Review (Recommended)
+### 7.1 Daily Review (recommended)
 
 1. open dashboard
-2. verify KPI cards (Total / Success Rate / Critical Failures)
+2. check KPI cards (Total, Success Rate, Critical Failures)
 3. inspect trend for degradation
-4. inspect failure queue for repeated patterns
+4. inspect failure queue for recurring patterns
 
 ### 7.2 Weekly Review
 
-1. check sustained success-rate trajectory
+1. evaluate sustained success-rate trend
 2. identify top recurring failure details
-3. validate whether fallback usage increased
-4. review need for selector maintenance
+3. check whether fallback usage is increasing
+4. assess selector maintenance needs
 
 ---
 
@@ -162,10 +153,10 @@ Practical initial targets for corporate operation:
 
 Criteria:
 
-- automation cannot login or cannot submit any record
-- dashboard unavailable for stakeholders
+- automation cannot log in or cannot submit any record
+- dashboard is unavailable for stakeholders
 
-Action target:
+Target response:
 
 - immediate triage (same hour)
 
@@ -174,9 +165,9 @@ Action target:
 Criteria:
 
 - elevated `not_confirmed` / `error`
-- unstable frontend signals but partial throughput
+- unstable frontend evidence with partial throughput
 
-Action target:
+Target response:
 
 - same business day
 
@@ -185,9 +176,9 @@ Action target:
 Criteria:
 
 - cosmetic dashboard issue
-- isolated non-critical step failure (for example, email notification)
+- isolated non-critical optional step failure (for example, email notification)
 
-Action target:
+Target response:
 
 - next planned maintenance window
 
@@ -204,36 +195,36 @@ Symptoms:
 
 Actions:
 
-1. verify credentials in secrets/env vars
-2. confirm target URL availability
+1. verify credentials in env vars/secrets
+2. validate target URL availability
 3. run locally in non-headless mode for visual inspection
-4. validate login selectors and update if page changed
+4. update selectors if frontend changed
 
 ### 9.2 High `not_confirmed` rate
 
 Symptoms:
 
-- many records not confirmed
+- many records classified as `not_confirmed`
 
 Actions:
 
 1. increase `SUBMISSION_CONFIRMATION_TIMEOUT` gradually
 2. review latest final HTML evidence (`logs/final_page_*.html`)
-3. inspect `detail` column in latest report
-4. validate whether JavaScript fallback path is still frontend-compatible
+3. inspect `detail` in latest report
+4. validate compatibility of fallback insertion path
 
 ### 9.3 Analytics not updated
 
 Symptoms:
 
-- workflow run completed, but `analytics/*.csv` unchanged
+- workflow completed but `analytics/*.csv` did not change
 
 Actions:
 
-1. inspect workflow step logs (`update_history.py` / `update_detailed_history.py`)
-2. verify repository write permissions for workflow token
-3. validate CSV schema expectations in scripts
-4. retry manual run with small dataset
+1. inspect workflow logs for `update_history.py` and `update_detailed_history.py`
+2. verify workflow token write permissions
+3. validate CSV schema assumptions in scripts
+4. retry a manual run with a small dataset
 
 ### 9.4 Dashboard empty in cloud
 
@@ -244,9 +235,9 @@ Symptoms:
 Actions:
 
 1. verify `analytics/history_runs.csv` and `analytics/detailed_runs.csv` exist
-2. confirm repository branch contains latest analytics commit
-3. if using remote fallback, validate `*_REMOTE_URL`
-4. reduce cache staleness via `DASHBOARD_CACHE_TTL`
+2. confirm branch includes the latest analytics commit
+3. if remote fallback is used, validate `HISTORY_REMOTE_URL` / `DETAILED_REMOTE_URL`
+4. reduce cache staleness with `DASHBOARD_CACHE_TTL`
 
 ---
 
@@ -256,8 +247,8 @@ After stabilization:
 
 1. document root cause
 2. document corrective action
-3. add preventive change (selector hardening, timing, validation)
-4. record incident date + impact + resolution in operations notes
+3. add preventive improvement (selector hardening, timeout tuning, validation)
+4. record incident date, impact, and resolution in operations notes
 
 ---
 
@@ -265,10 +256,10 @@ After stabilization:
 
 Before merging operationally relevant changes:
 
-1. run local smoke test (`MAX_RECORDS=5`)
-2. run workflow manually in GitHub Actions
+1. run a local smoke test (`MAX_RECORDS=5`)
+2. run the cloud workflow manually
 3. validate analytics file updates
-4. validate dashboard after refresh
+4. validate dashboard behavior after refresh
 
 ---
 
@@ -279,7 +270,7 @@ Guidelines:
 - never hardcode credentials in source code
 - keep sensitive values in environment variables or GitHub secrets
 - rotate credentials periodically
-- restrict repository admin/write access
+- restrict repository write/admin access
 
 ---
 
@@ -297,18 +288,24 @@ Run dashboard locally:
 streamlit run dashboard.py
 ```
 
-Quick syntax check:
+Quick syntax validation:
 
 ```bash
 python -m py_compile registration_web.py dashboard.py scripts/*.py
 ```
 
+Run local static target page:
+
+```bash
+python -m http.server 8000 --directory web_page/exclusive_page
+```
+
 ---
 
-## 14. Operational Roadmap (Recommended)
+## 14. Operational Roadmap (Suggested)
 
-1. Add automated tests in CI
-2. Add lint and formatting gates
-3. Add proactive alerting (email/Slack) on SLO breach
-4. Add monthly operations review template
-5. Define formal on-call ownership (if project becomes business-critical)
+1. add automated tests in CI
+2. add lint/format quality gates
+3. add proactive SLO alerts (email/Slack/Teams)
+4. create monthly operations review template
+5. define on-call ownership if the project becomes business-critical

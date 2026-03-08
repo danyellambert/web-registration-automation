@@ -2,20 +2,20 @@
 
 ## 1. Purpose
 
-This document describes the technical architecture of the web registration automation platform, including runtime components, data flow, resilience behavior, and cloud execution lifecycle.
+This document describes the current technical architecture of the Web Registration Automation platform, including runtime components, data flow, resilience behavior, and cloud execution lifecycle.
 
 ---
 
 ## 2. System Context
 
-The platform automates product registration into a web application and provides operational intelligence through historical datasets and a Streamlit dashboard.
+The platform automates product registration into a web interface (RegFlow Platform) and provides operational intelligence through consolidated historical datasets and a Streamlit dashboard.
 
-Core design goals:
+Primary architecture goals:
 
-- deterministic automated form submission
-- resilient execution in local and cloud contexts
-- traceable outcomes per run and per record
-- management-friendly observability
+- deterministic form submission automation
+- resilient behavior across local and cloud execution contexts
+- traceable outcomes by run and by record
+- management-ready observability
 
 ---
 
@@ -25,38 +25,38 @@ Core design goals:
 
 Responsibilities:
 
-- read source dataset (`data/products.csv`)
-- authenticate in the target web app
-- fill and submit registration form per record
-- validate submission with evidence signals
-- apply fallback logic when frontend evidence is unstable
-- persist structured outputs in `logs/`
+- read source dataset from `data/products.csv`
+- authenticate in target web page
+- fill and submit one product record at a time
+- confirm submission using multiple evidence signals
+- apply fallback insertion when frontend evidence is unstable
+- persist run artifacts in `logs/`
 
-### 3.2 Cloud Orchestrator (`registration-web.yml`)
+### 3.2 Cloud Orchestrator (`.github/workflows/registration-web.yml`)
 
 Responsibilities:
 
-- provision Python + Chrome runner
-- execute automation with parameterized runtime controls
-- generate summary payloads
-- update historical datasets
+- provision Python and Chrome runtime
+- execute automation with parameterized controls
+- generate run summary payloads
+- update consolidated analytics files
 - publish artifacts and execution summary
 - optionally notify stakeholders by email
 
 ### 3.3 Analytics Upsert Scripts (`scripts/`)
 
-- `summarize_run.py`: extracts latest run KPIs from report CSV
-- `update_history.py`: upserts run-level dataset
-- `update_detailed_history.py`: upserts record-level dataset
+- `summarize_run.py`: summarizes latest run report metrics
+- `update_history.py`: upserts run-level history
+- `update_detailed_history.py`: upserts record-level detailed history
 
 ### 3.4 Executive Dashboard (`dashboard.py`)
 
 Responsibilities:
 
-- render KPIs and trends
-- expose failure investigation tables
+- render KPI and trend views
+- expose failure investigation queues
 - support filtering and exports
-- use local logs when available, with cloud-safe fallback to analytics datasets
+- load local reports first, then cloud-safe analytics fallback
 
 ---
 
@@ -73,7 +73,7 @@ data/products.csv
     -> dashboard.py (logs + analytics + optional remote URLs)
 ```
 
-Legacy report names are still supported for backward compatibility:
+Legacy report naming is still supported for backward compatibility:
 
 - `logs/relatorio_cadastro_*.csv`
 
@@ -81,56 +81,56 @@ Legacy report names are still supported for backward compatibility:
 
 ## 5. Automation Runtime Internals
 
-### 5.1 Input Validation Layer
+### 5.1 Input Validation and Normalization
 
-`load_input_table()` validates:
+`load_input_table()` handles:
 
-- file existence
-- required column contract
-- optional slicing by offset/limit
+- CSV existence validation
+- required canonical schema enforcement
+- legacy column alias mapping to English schema
+- optional slicing by `RECORD_OFFSET` and `MAX_RECORDS`
 
-### 5.2 Selector Strategy
+Canonical required columns:
 
-The automation uses selector lists per field and attempts each locator with bounded timeout (`find_element`).
+- `product_code`, `brand`, `product_type`, `category`, `unit_price`, `cost`, `notes`
+
+### 5.2 Selector Resolution Strategy
+
+The runtime stores locator lists for each target field and attempts each locator with bounded wait time (`find_element`).
 
 Benefit:
 
-- improved adaptability against moderate UI selector drift
+- improved resilience against moderate UI selector drift
 
-### 5.3 Submission Confirmation Strategy
+### 5.3 Local Target Auto-Start
 
-For each record, the runtime captures baseline evidence:
+If `LOGIN_URL` is local (`127.0.0.1` / `localhost`) and unreachable, the runtime can auto-start the static site from `web_page/exclusive_page` when `AUTO_START_LOCAL_SITE=1`.
 
-- table row count in DOM
-- localStorage list length
+### 5.4 Submission Confirmation Strategy
 
-After submit, it confirms success by comparing post-submit signals.
+For each submitted record, baseline and post-submit evidence are compared:
 
-Possible statuses:
+- DOM table row count
+- localStorage list length (`productList`)
+- submitted product code presence
+
+Possible `execution_status` values:
 
 - `ok`
 - `partial_success`
 - `not_confirmed`
 - `error`
 
-> Status values are intentionally kept in Portuguese for compatibility with existing
-> analytics schema and downstream dashboards.
+### 5.5 JavaScript Fallback Strategy
 
-### 5.4 Fallback Insertion Strategy
+When no clear evidence appears and table rows did not increase, runtime attempts `insert_product_with_js_fallback()` and revalidates product code presence.
 
-If no clear evidence appears and table did not grow, runtime attempts JavaScript fallback insertion (`insert_product_with_js_fallback`) and revalidates record presence.
+### 5.6 Incremental Persistence Strategy
 
-### 5.5 Incremental Persistence Strategy
+To reduce evidence loss on interruption/timeout:
 
-To reduce observability loss on interruption/timeout:
-
-- partial CSV persistence every `PARTIAL_REPORT_EVERY`
+- partial report persistence every `PARTIAL_REPORT_EVERY`
 - partial HTML persistence every `PARTIAL_HTML_EVERY`
-
-Legacy aliases are still supported:
-
-- `RELATORIO_PARCIAL_CADA`
-- `HTML_PARCIAL_CADA`
 
 ---
 
@@ -138,27 +138,28 @@ Legacy aliases are still supported:
 
 ### 6.1 Trigger Modes
 
-- manual (`workflow_dispatch`) with operational input controls
-- scheduled (`schedule`) with optional enable gate (`ENABLE_REGISTRATION_SCHEDULE`)
+- manual trigger via `workflow_dispatch`
+- scheduled trigger via cron (`0 11 * * *`)
+- optional schedule gate via repository variable `ENABLE_REGISTRATION_SCHEDULE=true`
 
 ### 6.2 Job Lifecycle
 
-1. checkout
-2. setup python/chrome
+1. checkout repository
+2. set up Python and Chrome
 3. install dependencies
 4. run automation
-5. summarize run
+5. generate summary files
 6. update run-level history
 7. update detailed history
-8. commit/push analytics files
-9. optional email notification
-10. upload artifacts
+8. commit/push analytics files (if changed)
+9. send optional email notification
+10. upload logs/analytics artifacts
 
 ### 6.3 Fault-Isolation Patterns
 
-- history commit step uses `continue-on-error`
-- email step is optional/non-blocking
-- summary remains available even when optional steps fail
+- analytics commit step uses `continue-on-error`
+- email sending is optional and non-blocking
+- summary artifacts are generated with `if: always()`
 
 ---
 
@@ -189,7 +190,7 @@ Upsert key priority:
 
 Representative fields:
 
-- all record-level fields from report
+- full record-level report schema
 - `run_id`, `run_datetime`, `report_file`, `github_run_id`
 - `history_updated_at_utc`
 
@@ -199,68 +200,68 @@ Representative fields:
 
 ### 8.1 Data Loading Modes
 
-1. **Primary local mode**: load from `logs/registration_report_*.csv`
-2. **Cloud fallback mode**: load from `analytics/detailed_runs.csv`
-3. **Remote fallback mode**: optional `*_REMOTE_URL`
+1. **Primary local mode**: `logs/registration_report_*.csv`
+2. **Cloud fallback mode**: `analytics/detailed_runs.csv`
+3. **Optional remote fallback mode**: `HISTORY_REMOTE_URL` / `DETAILED_REMOTE_URL`
 
-Legacy local report names are still recognized:
+Legacy local reports are still recognized:
 
 - `logs/relatorio_cadastro_*.csv`
 
 ### 8.2 Analytical Layers
 
-- Executive: KPI cards + SLA gauge
-- Operational: trend/composition/distribution views
-- Quality: failure queue and detailed table
+- **Executive:** KPI cards + SLA gauge
+- **Operational:** trend/composition/efficiency views
+- **Quality:** failure queue and detailed inspection table
 
 ### 8.3 Cache Model
 
-- Streamlit `@st.cache_data` with configurable TTL (`DASHBOARD_CACHE_TTL`)
+- `@st.cache_data` with configurable TTL (`DASHBOARD_CACHE_TTL`)
 
 ---
 
 ## 9. Reliability and Resilience Patterns
 
-Implemented:
+Implemented patterns:
 
-1. multi-selector lookup strategy
-2. multiple submission evidence channels
-3. controlled JavaScript fallback path
-4. periodic persistence of intermediate outputs
-5. consolidated immutable-like historical datasets
-6. cloud-safe dashboard fallback to analytics data
+1. multi-selector lookup
+2. multi-signal submission confirmation
+3. controlled JavaScript fallback insertion
+4. periodic intermediate persistence
+5. consolidated run-level and record-level history
+6. cloud-safe dashboard data fallback
 
 ---
 
 ## 10. Deployment Considerations
 
-### 10.1 Local
+### 10.1 Local Deployment
 
 - install Chrome
-- configure credentials via env vars
-- run automation + dashboard manually
+- configure environment variables
+- run automation and dashboard manually
 
-### 10.2 Cloud (GitHub Actions + Streamlit)
+### 10.2 Cloud Deployment (GitHub Actions + Streamlit)
 
-- configure login secrets (mandatory)
+- configure required login secrets
 - configure optional SMTP secrets
 - ensure workflow write permissions for analytics commits
-- optionally configure Streamlit secrets for remote CSV fallback
+- optionally configure Streamlit remote URL fallbacks
 
 ---
 
 ## 11. Current Constraints
 
-- UI selector changes in target app may require locator updates
+- frontend selector changes may require locator updates
 - no dedicated automated test suite yet
-- no centralized external datastore (CSV-based persistence by design)
+- persistence currently CSV-based (no centralized external datastore)
 
 ---
 
-## 12. Recommended Next Architectural Enhancements
+## 12. Recommended Next Enhancements
 
-1. Introduce CI quality gates (tests + lint + static checks)
-2. Add schema validation for analytics CSVs
-3. Add SLO alerting channel (Slack/Teams/email thresholds)
-4. Migrate persistent history to a managed data store (optional future)
-5. Add synthetic health run for proactive monitoring
+1. add CI quality gates (tests, lint, static checks)
+2. add schema validation for analytics CSV files
+3. add proactive SLO alerts (email/Slack/Teams)
+4. consider managed data store for long-term history
+5. add synthetic health checks for proactive monitoring
