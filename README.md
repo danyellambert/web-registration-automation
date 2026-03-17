@@ -9,6 +9,8 @@ Production-ready product registration automation with Selenium, GitHub Actions o
 
 **Live dashboard:** https://web-registration-automation-dashboard.streamlit.app/
 
+**Live test website:** https://danyellambert.github.io/web-registration-automation/products.html
+
 ---
 
 ## Table of Contents
